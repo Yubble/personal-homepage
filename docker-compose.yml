@@ -17,6 +17,15 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "127.0.0.1:8001:8000"   # 只对本机回环暴露，杜绝绕过 nginx 直连公网
+      - "127.0.0.1:8001:8000"   # 只对本机回环暴露（宿主调试用），公网流量走 nginx 内网直连
     volumes:
       - .:/app                  # 整仓库挂载：笔记落盘 + git 提交都在宿主机仓库里
+    networks:
+      - default
+      - agent-nginx             # 挂进 Agent 的 compose 网络：snack-nginx 用容器名直连，无需暴露端口
+
+# 外部网络：由 /opt/snack-agent 的 compose 创建（snack-agent_default）
+networks:
+  agent-nginx:
+    external: true
+    name: snack-agent_default
