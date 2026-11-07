@@ -1,0 +1,22 @@
+# Yubble 个人主页 · 独立部署编排
+#
+# 与零食店 Agent（snack-store-agent）完全独立的第二个 compose：
+#   - 各自 up/down/升级，互不知晓对方存在
+#   - 端口只绑 127.0.0.1:8001——外部流量必须经过 Agent 的 nginx（总入口）
+#
+# 关键设计：整个仓库目录挂载进 /app
+#   发布 = 容器内写 site/notes/*.md + git commit → 全部落回宿主机仓库。
+#   容器重建不丢笔记；宿主机 git pull 即更新代码（restart 容器生效）。
+#
+# 启动：docker compose up -d --build
+# 验证：curl http://127.0.0.1:8001/notes/index.json
+services:
+  web:
+    build: .
+    container_name: yubble-homepage
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8001:8000"   # 只对本机回环暴露，杜绝绕过 nginx 直连公网
+    volumes:
+      - .:/app                  # 整仓库挂载：笔记落盘 + git 提交都在宿主机仓库里
