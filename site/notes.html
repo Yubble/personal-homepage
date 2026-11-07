@@ -51,6 +51,8 @@
     <a class="note-back" href="notes.html">← 返回笔记列表</a>
     <div style="text-align:right;margin:-10px 0 20px">
       <a class="write-entry" id="editEntry" href="#/new">编辑这篇</a>
+      <button class="write-entry" id="delEntry" onclick="deleteNote()"
+              style="margin-left:12px;color:#b91c1c;border-color:#fca5a5">删除这篇</button>
     </div>
   </div>
 
@@ -64,8 +66,8 @@
       <div class="editor-auth" id="edAuthBox" style="display:none">
         <input type="password" id="edToken" placeholder="笔记口令" style="width:180px" autocomplete="off"
                onkeydown="if(event.key==='Enter')edRetryPublish()">
-        <button class="primary" onclick="edRetryPublish()">验证并发布</button>
-        <span style="font-size:12.5px;color:#78716c">只需发布时输入一次，浏览器会记住；写和暂存全程不需要</span>
+        <button class="primary" id="edAuthBtn" onclick="edRetryPublish()">验证并发布</button>
+        <span style="font-size:12.5px;color:#78716c">只需发布/删除时输入一次，浏览器会记住；写作全程不需要</span>
       </div>
       <div class="editor-meta">
         <label>日期 <span class="ed-file" id="edDateChip">—</span></label>
@@ -207,6 +209,10 @@ function showDetail(file) {
   $('editorView').style.display = 'none';
   $('detailView').style.display = '';
   $('editEntry').href = '#/edit/' + file;
+  edDetailFile = file;
+  const delBtn = $('delEntry');
+  delete delBtn.dataset.armed;          // 每次进入详情重置两段式确认
+  delBtn.textContent = '删除这篇';
   showNote(file);
   window.scrollTo(0, 0);
 }
@@ -215,6 +221,7 @@ function showList() {
   $('editorView').style.display = 'none';
   $('listView').style.display = '';
   document.title = 'Yubble · 学习笔记';
+  edDetailFile = null;
 }
 window.addEventListener('hashchange', route);
 // route()/loadList() 的首次调用放在整个脚本最末尾——
@@ -229,7 +236,8 @@ const ED_DRAFTS_KEY = 'kb_note_drafts';
 let edPreviewOn = false;
 let edDraftsOpen = false;
 let edEditFile = null;    // 编辑已有笔记时锁定原文件名；新作为 null（发布时自动命名）
-let edPending = null;     // 401 后待重发的 {filename, content}
+let edPending = null;     // 401 后待重发的动作 {type:'publish'|'delete', ...}
+let edDetailFile = null;  // 详情视图当前展示的文件名（删除按钮用）
 
 const edToken = () => localStorage.getItem(ED_TOKEN_KEY) || '';
 async function edApi(path, opt) {
@@ -463,12 +471,13 @@ async function publishNote() {
   clearTimeout(edConfirmTimer);
   delete btn.dataset.armed;
   btn.textContent = '提交发布';
-  if (!edToken()) return askToken('发布需要笔记口令——输一次，浏览器就记住', filename, content);
+  if (!edToken()) return askToken('发布需要笔记口令——输一次，浏览器就记住', { type: 'publish', filename, content });
   await doPublish(filename, content);
 }
 
-function askToken(msg, filename, content) {
-  edPending = { filename, content };
+function askToken(msg, pending) {
+  edPending = pending;
+  $('edAuthBtn').textContent = pending.type === 'delete' ? '验证并删除' : '验证并发布';
   $('edAuthBox').style.display = '';
   $('edToken').focus();
   toast(msg, 'info');
@@ -480,7 +489,57 @@ async function edRetryPublish() {
   localStorage.setItem(ED_TOKEN_KEY, v);
   $('edToken').value = '';
   $('edAuthBox').style.display = 'none';
-  if (edPending) { const p = edPending; edPending = null; await doPublish(p.filename, p.content); }
+  if (edPending) {
+    const p = edPending; edPending = null;
+    $('edAuthBtn').textContent = '验证并发布';
+    if (p.type === 'delete') await doDeleteNote(p.file);
+    else await doPublish(p.filename, p.content);
+  }
+}
+
+let delTimer = null;
+
+async function deleteNote() {
+  const file = edDetailFile;
+  if (!file) return;
+  const btn = $('delEntry');
+  // 两段式确认：第一击变"确认删除？"，3.5 秒内再击才真删（防手滑）
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = '1';
+    btn.textContent = '确认删除？';
+    clearTimeout(delTimer);
+    delTimer = setTimeout(() => { delete btn.dataset.armed; btn.textContent = '删除这篇'; }, 3500);
+    return;
+  }
+  clearTimeout(delTimer); delete btn.dataset.armed;
+  if (!edToken()) {
+    askToken('删除也需要笔记口令——输一次浏览器就记住', { type: 'delete', file });
+    btn.textContent = '删除这篇';
+    return;
+  }
+  btn.textContent = '删除中…';
+  await doDeleteNote(file);
+}
+
+async function doDeleteNote(file) {
+  try {
+    const d = await edApi('/api/admin/notes/delete/' + encodeURIComponent(file), { method: 'POST' });
+    // 清掉这篇笔记关联的草稿（内容已随文件一起没了，留着会指向不存在的文件）
+    edSaveAll(edDrafts().filter(x => x.filename !== file));
+    toast(d.committed ? '已删除，git 提交 ' + d.commit : '已删除', 'ok', 6000);
+    loadList();
+    location.hash = '';   // 回列表（此时详情页目标已不存在）
+  } catch (e) {
+    if (e.status === 401) {
+      edPending = { type: 'delete', file };
+      $('edAuthBox').style.display = '';
+      $('edToken').focus();
+      toast('口令不对，再试一次', 'err');
+    } else {
+      toast('删除失败：' + e.message, 'err', 7000);
+    }
+  }
+  $('delEntry').textContent = '删除这篇';
 }
 
 async function doPublish(filename, content) {
@@ -505,7 +564,7 @@ async function doPublish(filename, content) {
     location.hash = '#/' + filename;
   } catch (e) {
     if (e.status === 401) {
-      edPending = { filename, content };
+      edPending = { type: 'publish', filename, content };
       $('edAuthBox').style.display = '';
       $('edToken').focus();
       toast('口令不对，再试一次', 'err');

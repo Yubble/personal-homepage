@@ -226,6 +226,29 @@ def publish_note(
     }
 
 
+@router.post("/delete/{filename}")
+def delete_note(
+    filename: str,
+    x_notes_token: str | None = Header(default=None),
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """删除笔记：删文件 → 重建清单 → git 提交（与发布同一口令）。
+
+    git add 对已删除文件同样生效（工作区没了 = 暂存区记录删除），
+    历史里永远找得回——这正是 Git 即 CMS 比数据库 CMS 安心的地方。
+    """
+    _require_notes_token(x_notes_token or x_admin_token)
+    p = _safe_note_path(filename)
+    if not p.exists():
+        raise HTTPException(404, "笔记不存在")
+    title = _extract_title(p.read_text(encoding="utf-8"))
+    p.unlink()
+    _rebuild_manifest()
+    result = _git_commit("site/notes", title, "删除")
+    _audit("notes.delete", filename, {"title": title, "commit": result["commit"]})
+    return {"ok": True, "filename": filename, "committed": result["committed"], "commit": result["commit"]}
+
+
 @router.post("/image")
 async def upload_note_image(
     x_notes_token: str | None = Header(default=None),
