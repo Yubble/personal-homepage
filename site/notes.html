@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-store">
+<title>Yubble · 学习笔记</title>
+<link rel="stylesheet" href="style.css?v=10">
+<!-- Markdown 渲染（详情/预览） + XSS 消毒 -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<!-- 写作台所见即所得编辑器：像写文档一样排版，底层自动存 Markdown -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vditor@3.10.4/dist/index.css">
+<script src="https://cdn.jsdelivr.net/npm/vditor@3.10.4/dist/index.min.js"></script>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html">Yubble</a>
+    <div class="nav-links">
+      <a href="index.html">首页</a>
+      <a href="works.html">作品</a>
+      <a class="active" href="notes.html">笔记</a>
+    </div>
+  </div>
+</nav>
+
+<div id="toasts"></div>
+
+<div class="page">
+
+  <!-- 列表视图 -->
+  <div id="listView">
+    <header style="margin-bottom:8px;">
+      <h1 class="page-title">学习笔记</h1>
+      <p class="page-sub">做项目时想明白的事，记下来。写作即部署：写一篇 Markdown 提交到 Git，列表自动长出来。</p>
+    </header>
+    <div style="display:flex;justify-content:flex-end;margin:-2px 0 6px">
+      <a class="write-entry" href="#/new">＋ 写一篇</a>
+    </div>
+    <section id="noteList">
+      <div class="note-loading">正在从仓库拉取笔记清单…</div>
+    </section>
+  </div>
+
+  <!-- 详情视图（#/文件名.md 时显示） -->
+  <div id="detailView" style="display:none">
+    <a class="note-back" href="notes.html">← 返回笔记列表</a>
+    <article id="noteBody" class="md-body"><div class="note-loading">加载中…</div></article>
+    <a class="note-back" href="notes.html">← 返回笔记列表</a>
+    <div style="text-align:right;margin:-10px 0 20px">
+      <a class="write-entry" id="editEntry" href="#/new">编辑这篇</a>
+    </div>
+  </div>
+
+  <!-- 写作视图（#/new 或 #/edit/文件名.md） -->
+  <div id="editorView" style="display:none">
+    <a class="note-back" href="notes.html">← 返回笔记列表</a>
+    <div class="editor-card">
+      <div class="editor-head">
+        <h2 id="edHead">写一篇新笔记</h2>
+      </div>
+      <div class="editor-auth" id="edAuthBox" style="display:none">
+        <input type="password" id="edToken" placeholder="笔记口令" style="width:180px" autocomplete="off"
+               onkeydown="if(event.key==='Enter')edRetryPublish()">
+        <button class="primary" onclick="edRetryPublish()">验证并发布</button>
+        <span style="font-size:12.5px;color:#78716c">只需发布时输入一次，浏览器会记住；写和暂存全程不需要</span>
+      </div>
+      <div class="editor-meta">
+        <label>日期 <span class="ed-file" id="edDateChip">—</span></label>
+        <span class="ed-file" id="edFile">—</span>
+      </div>
+      <div class="editor-bar">
+        <button id="edPreviewBtn" onclick="togglePreview()">预览</button>
+        <button onclick="toggleDrafts()">草稿箱</button>
+        <button class="primary" id="edPublishBtn" onclick="publishNote()">提交发布</button>
+        <span class="ed-auto" id="edAuto">自动保存：待命</span>
+        <span style="font-size:12.5px;color:#78716c">发布 = 写入仓库 + git 提交，落盘即上线；首次发布会要一次笔记口令</span>
+      </div>
+      <div id="draftsPanel" style="display:none"></div>
+      <div id="edText"></div>
+      <div id="edPreview" class="md-body" style="display:none"></div>
+    </div>
+  </div>
+
+  <footer>
+    <span>© 2026 Yubble</span>
+    <span><a href="/hello">服务器探针</a></span>
+  </footer>
+
+</div>
+
+<script>
+const NOTES_DIR = 'notes/';
+console.log('[notes] 页面版本 2026-11-07-r4（修复发布请求头丢失）');
+const $ = id => document.getElementById(id);
+const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* toast 提示（与运营管理台同款交互） */
+function toast(text, kind = 'info', ms = 4200) {
+  let box = $('toasts');
+  if (!box) { box = document.createElement('div'); box.id = 'toasts'; document.body.appendChild(box); }
+  const t = document.createElement('div');
+  t.className = 'toast ' + kind; t.textContent = text;
+  box.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 320); }, ms);
+}
+
+/* 相对路径改写：md 文件在 /notes/ 下，里面的 img/xxx.png 应相对 md 解析，
+   但页面在根路径 —— 注入 DOM 前统一补上 notes/ 前缀 */
+function fixRelativeUrls(html) {
+  // img/xxx.png 补 notes/ 前缀；上传插图返回的 notes/img/... 已含前缀，跳过
+  return html.replace(/(src|href)="(?!https?:|\/\/|#|mailto:|\/|notes\/)([^"]+)"/g,
+    (m, attr, url) => `${attr}="${NOTES_DIR}${url}"`);
+}
+
+/* 元信息约定：日期取自文件名前缀 YYYY-MM-DD，标题取自正文第一个一级标题，
+   摘取正文第一段做摘要 —— 作者只需关心内容本身 */
+function parseMeta(file, md) {
+  const title = (md.match(/^#\s+(.+)$/m) || [])[1] || file.replace(/\.md$/, '');
+  const body = md.replace(/^#\s+.+\s*$/, '').trim();
+  const excerpt = body
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')      // 去图
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')   // 链接留字
+    .replace(/[#>*`~]|^-/gm, '')               // 去 md 符号
+    .replace(/\s+/g, ' ').trim().slice(0, 92);
+  const date = (file.match(/^\d{4}-\d{2}-\d{2}/) || [''])[0];
+  return { file, title, excerpt, date: date || '——' };
+}
+
+/* 列表：抓 notes/ 目录清单（nginx autoindex / python http.server 都给 HTML 列表），
+   解析出 .md 文件名，逐个取回解析标题与摘要 —— 无清单文件要维护 */
+async function loadList() {
+  const box = $('noteList');
+  // 主通道：index.json 清单（发布时自动重建并随笔记提交，任何静态服务器可用）
+  // 备通道：目录浏览解析（nginx autoindex，兼容手工放 md 没清单的旧场景）
+  let items = null;
+  try {
+    const r = await fetch(NOTES_DIR + 'index.json', { cache: 'no-store' });
+    if (r.ok) items = await r.json();
+  } catch (e) {}
+  if (!items) {
+    try {
+      const r = await fetch(NOTES_DIR, { cache: 'no-store' });
+      if (r.ok) {
+        items = [...(await r.text()).matchAll(/href="([^"]+?\.md)"/g)]
+          .map(m => decodeURIComponent(m[1].split('/').pop()))
+          .filter(f => !f.startsWith('_'))
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .sort((a, b) => b.localeCompare(a))
+          .map(f => ({ file: f, title: null, date: (f.match(/^\d{4}-\d{2}-\d{2}/) || [''])[0] }));
+      }
+    } catch (e) {}
+  }
+  if (!items) {
+    box.innerHTML = '<div class="note-loading">笔记清单拉取失败——既没有 index.json 也没有目录浏览权限</div>';
+    return;
+  }
+  if (!items.length) {
+    box.innerHTML = '<div class="note-loading">笔记目录还是空的——点右上角「写一篇」开张</div>';
+    return;
+  }
+  const metas = await Promise.all(items.map(async it => {
+    try {
+      const md = await (await fetch(NOTES_DIR + it.file)).text();
+      const meta = parseMeta(it.file, md);
+      return { ...meta, title: it.title || meta.title, date: it.date || meta.date };
+    } catch (e) {
+      return { file: it.file, title: it.title || it.file, excerpt: '（读取失败）', date: it.date || '' };
+    }
+  }));
+  box.innerHTML = metas.map(m => `
+    <a class="note" href="#/${esc(m.file)}">
+      <div class="date">${esc(m.date)}</div>
+      <h3>${esc(m.title)}</h3>
+      <p>${esc(m.excerpt)}${m.excerpt.length >= 92 ? '…' : ''}</p>
+    </a>`).join('');
+}
+
+/* 详情：拉 md → marked 渲染 → 消毒 → 修相对路径 */
+async function showNote(file) {
+  const box = $('noteBody');
+  box.innerHTML = '<div class="note-loading">加载中…</div>';
+  try {
+    const md = await (await fetch(NOTES_DIR + file)).text();
+    if (typeof marked === 'undefined') throw new Error('Markdown 渲染库加载失败（检查网络/CDN）');
+    box.innerHTML = fixRelativeUrls(DOMPurify.sanitize(marked.parse(md, { breaks: true })));
+    document.title = (md.match(/^#\s+(.+)$/m) || [])[1] + ' · Yubble';
+  } catch (e) {
+    box.innerHTML = '<div class="note-loading">笔记加载失败：' + esc(e.message) + '</div>';
+    document.title = 'Yubble · 学习笔记';
+  }
+}
+
+/* 哈希路由：#/xxx.md 详情 · #/new 新写 · #/edit/xxx.md 编辑 · 其余列表 —— 刷新/分享/后退都不丢 */
+function route() {
+  const h = location.hash;
+  let m;
+  if (h === '#/new') { showEditor(null); return; }
+  if ((m = h.match(/^#\/edit\/(.+\.md)$/))) { showEditor(decodeURIComponent(m[1])); return; }
+  if ((m = h.match(/^#\/(.+\.md)$/))) { showDetail(decodeURIComponent(m[1])); return; }
+  showList();
+}
+function showDetail(file) {
+  $('listView').style.display = 'none';
+  $('editorView').style.display = 'none';
+  $('detailView').style.display = '';
+  $('editEntry').href = '#/edit/' + file;
+  showNote(file);
+  window.scrollTo(0, 0);
+}
+function showList() {
+  $('detailView').style.display = 'none';
+  $('editorView').style.display = 'none';
+  $('listView').style.display = '';
+  document.title = 'Yubble · 学习笔记';
+}
+window.addEventListener('hashchange', route);
+// route()/loadList() 的首次调用放在整个脚本最末尾——
+// 放在这里时，带 #/new 打开页面会让 route() 抢在写作台变量初始化之前执行，
+// 触发 let 的暂时性死区异常，整个脚本崩断（编辑器不挂载、发布无声失败）
+
+/* ==================== 写作台 ==================== */
+/* 写/预览/草稿全程零口令；只有发布要 NOTES_TOKEN——首次 401 时弹输入条，输一次记住。
+   草稿存浏览器 localStorage，不过服务器。 */
+const ED_TOKEN_KEY = 'kb_notes_token';
+const ED_DRAFTS_KEY = 'kb_note_drafts';
+let edPreviewOn = false;
+let edDraftsOpen = false;
+let edEditFile = null;    // 编辑已有笔记时锁定原文件名；新作为 null（发布时自动命名）
+let edPending = null;     // 401 后待重发的 {filename, content}
+
+const edToken = () => localStorage.getItem(ED_TOKEN_KEY) || '';
+async function edApi(path, opt) {
+  // 头必须深合并：Object.assign 浅合并会让调用方的 headers 整个顶掉默认头，
+  // X-Notes-Token 被丢掉——发布请求全部变成"缺口令"401 的元凶
+  opt = Object.assign({ headers: {} }, opt || {});
+  opt.headers = Object.assign({ 'X-Notes-Token': edToken() }, opt.headers);
+  const r = await fetch(path, opt);
+  let data = {};
+  try { data = await r.json(); } catch (e) {}
+  if (!r.ok) {
+    const err = new Error((data && data.detail) ? data.detail : 'HTTP ' + r.status);
+    err.status = r.status;
+    throw err;
+  }
+  return data;
+}
+
+/* ── 编辑器：Vditor 所见即所得（像写文档排版，底层自动存 Markdown）──
+   CDN 加载失败时降级为纯文本框，仍可手写 Markdown；统一走 edGetValue/edSetValue */
+let edVditor = null, edReady = false, edFallback = false, edQueueContent = null;
+
+function edGetValue() {
+  if (edVditor && edReady) return edVditor.getValue();
+  if (edFallback) return $('edTextRaw').value;
+  return edQueueContent || '';
+}
+function edSetValue(v) {
+  if (edVditor && edReady) { edVditor.setValue(v); return; }
+  if (edFallback) { $('edTextRaw').value = v; return; }
+  edQueueContent = v;   // 编辑器尚未就绪：挂起，等 after() 回调再灌入
+}
+
+function ensureEditor() {
+  if (edVditor || edFallback) return;
+  if (typeof Vditor === 'undefined') {
+    const ta = document.createElement('textarea');
+    ta.id = 'edTextRaw'; ta.className = 'md-editor';
+    ta.placeholder = '# 标题\n\n（编辑器库加载失败，已降级为纯文本，可手写 Markdown）';
+    $('edText').appendChild(ta);
+    edFallback = true;
+    if (edQueueContent != null) { ta.value = edQueueContent; edQueueContent = null; }
+    return;
+  }
+  edVditor = new Vditor('edText', {
+    height: '52vh',
+    mode: 'wysiwyg',
+    lang: 'zh_CN',
+    cache: { enable: false },
+    placeholder: '先写一行 # 标题，然后正文直接写——像用文档编辑器一样排版，不用记 Markdown 语法',
+    toolbar: ['headings', 'bold', 'italic', 'strike', '|',
+              'list', 'ordered-list', 'check', 'outdent', 'indent', '|',
+              'quote', 'code', 'inline-code', 'table', 'link', 'upload', '|',
+              'undo', 'redo', '|', 'edit-mode', 'fullscreen'],
+    upload: {
+      url: '/api/admin/notes/image',
+      headers: { 'X-Notes-Token': edToken() },
+      fieldName: 'file',
+      max: 5 * 1024 * 1024,
+      accept: 'image/png, image/jpeg, image/gif, image/webp',
+      format: (files, res) => {
+        try { if (JSON.parse(res).code === 0) return res; } catch (e) {}
+        toast('插图上传失败——若还没输过笔记口令，先点一次「提交发布」输口令，再传图', 'err', 6500);
+        return JSON.stringify({ msg: '上传失败', code: 1, data: { errFiles: [files && files[0] ? files[0].name : ''] } });
+      },
+    },
+    after: () => {
+      edReady = true;
+      if (edQueueContent != null) { edVditor.setValue(edQueueContent); edQueueContent = null; }
+    },
+  });
+}
+
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+function edSyncFile() {
+  // 日期不存 DOM：编辑取原文件名前缀，新作取当天——发布永远拿得到
+  const d = edEditFile ? ((edEditFile.match(/^(\d{4}-\d{2}-\d{2})/) || [''])[0]) : todayStr();
+  $('edDateChip').textContent = d || '—';
+  // 文件名对作者透明：编辑沿用原名，新作发布时按「日期-时刻」自动生成
+  $('edFile').textContent = edEditFile || (d ? `${d}-发布时自动命名.md` : '—');
+  return d || null;
+}
+
+async function showEditor(file) {
+  $('listView').style.display = 'none';
+  $('detailView').style.display = 'none';
+  $('editorView').style.display = '';
+  window.scrollTo(0, 0);
+  edPreviewOn = false;
+  $('edText').style.display = '';
+  $('edPreview').style.display = 'none';
+  $('edPreviewBtn').textContent = '预览';
+  edEditFile = file || null;
+  edSyncFile();
+  ensureEditor();
+  edSetValue('');
+  edDraftId = edNewDraftId();       // 新会话：自动保存将落到这条新草稿
+  edLastSaved = '';
+  setAutoLabel('自动保存：有修改后 15 秒内落一笔');
+  $('draftsPanel').style.display = 'none';
+  edDraftsOpen = false;
+  if (file) {
+    $('edHead').textContent = '编辑笔记：' + file;
+    try {
+      const d = await edApi('/api/admin/notes/source/' + encodeURIComponent(file));
+      edSetValue(d.content);
+      edLastSaved = d.content;      // 原文不算"新改动"，避免刚打开就存一条副本
+      edSyncFile();
+    } catch (e) { toast('读取笔记失败：' + e.message, 'err'); }
+  } else {
+    $('edHead').textContent = '写一篇新笔记';
+  }
+  $('edAuthBox').style.display = 'none';
+}
+
+function togglePreview() {
+  edPreviewOn = !edPreviewOn;
+  if (edPreviewOn) {
+    const md = edGetValue();
+    $('edPreview').innerHTML = (typeof marked !== 'undefined')
+      ? fixRelativeUrls(DOMPurify.sanitize(marked.parse(md || '*（空空如也）', { breaks: true })))
+      : 'Markdown 渲染库未加载（检查网络）';
+  }
+  if (edVditor && edReady) edVditor.vditor.element.style.display = edPreviewOn ? 'none' : '';
+  else if (edFallback) $('edTextRaw').style.display = edPreviewOn ? 'none' : '';
+  $('edPreview').style.display = edPreviewOn ? '' : 'none';
+  $('edPreviewBtn').textContent = edPreviewOn ? '继续写' : '预览';
+}
+
+/* 草稿箱：纯浏览器本地（不上传、不鉴权），换浏览器/设备不带过去。
+   自动保存：编辑器打开时每 15 秒脏检查一次，有变化才落笔，且原地更新
+   本会话的草稿条目——不会每 15 秒堆一条垃圾。 */
+let edDraftId = null;      // 本会话绑定的草稿条目 id
+let edLastSaved = '';      // 上次保存的内容快照（脏检查基准）
+
+const edDrafts = () => { try { return JSON.parse(localStorage.getItem(ED_DRAFTS_KEY) || '[]'); } catch (e) { return []; } };
+const edSaveAll = list => localStorage.setItem(ED_DRAFTS_KEY, JSON.stringify(list.slice(0, 30)));
+const edTitle = c => (c.match(/^#\s+(.+)$/m) || ['', '无标题草稿'])[1].replace(/^#+\s*/, '').trim() || '无标题草稿';
+const edNewDraftId = () => 'd' + Date.now().toString(36) + Math.floor(Math.random() * 1000);
+const setAutoLabel = t => { $('edAuto').textContent = t; };
+
+function saveSession() {
+  const content = edGetValue();
+  if (!content.trim() || content === edLastSaved) return;   // 空/没变化都不写
+  const list = edDrafts();
+  const entry = {
+    id: edDraftId, filename: edEditFile || '', title: edTitle(content),
+    content, saved_at: new Date().toLocaleString('zh-CN', { hour12: false }),
+  };
+  const i = list.findIndex(x => x.id === edDraftId);
+  if (i >= 0) list[i] = entry; else list.unshift(entry);
+  edSaveAll(list);
+  edLastSaved = content;
+  setAutoLabel('已自动保存 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+  if (edDraftsOpen) renderDrafts();
+}
+
+setInterval(() => {
+  if (!edDraftId || $('editorView').style.display === 'none') return;
+  saveSession(false);
+}, 15000);
+
+function toggleDrafts() { edDraftsOpen = !edDraftsOpen; renderDrafts(); }
+
+function renderDrafts() {
+  const box = $('draftsPanel');
+  if (!edDraftsOpen) { box.style.display = 'none'; return; }
+  const drafts = edDrafts();
+  box.style.display = '';
+  if (!drafts.length) {
+    box.innerHTML = '<div class="note-loading" style="margin-top:0;margin-bottom:10px">草稿箱是空的——写作时每 15 秒自动存一笔（存于本浏览器）</div>';
+    return;
+  }
+  box.innerHTML = '<div style="font-size:12px;color:#78716c;letter-spacing:1px;margin-bottom:4px">草稿箱（存于本浏览器，不上传）——续写会接上自动保存</div>' +
+    drafts.map(i => `<div class="draft-item">
+      <span class="t">${esc(i.title)}</span>
+      ${i.filename ? `<span class="meta">${esc(i.filename)}</span>` : ''}
+      <span class="meta">${esc(i.saved_at)} · ${i.content.length} 字</span>
+      <button onclick="resumeDraft('${i.id}')">续写</button>
+      <button onclick="deleteDraft('${i.id}', this)">删除</button>
+    </div>`).join('');
+}
+
+function resumeDraft(id) {
+  const d = edDrafts().find(x => x.id === id);
+  if (!d) return;
+  // 草稿带着已发布笔记的文件名 → 续写仍指向原文件，发布即更新
+  if (d.filename) edEditFile = d.filename;
+  edDraftId = id;            // 接管这条草稿：之后自动保存原地更新它
+  edLastSaved = d.content;
+  edSetValue(d.content);
+  edSyncFile();
+  if (edPreviewOn) togglePreview();
+  setAutoLabel('已续写，自动保存已接上');
+  toast('草稿已载入，继续写吧——每 15 秒自动保存', 'ok');
+}
+
+function deleteDraft(id, btn) {
+  // 两段式确认（同发布）：第一次点变「确认删除」，3 秒内再点执行
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = '1';
+    btn.textContent = '确认删除';
+    setTimeout(() => { delete btn.dataset.armed; btn.textContent = '删除'; }, 3000);
+    return;
+  }
+  edSaveAll(edDrafts().filter(x => x.id !== id));
+  if (id === edDraftId) edLastSaved = '';   // 删的是当前会话的：下次改动重新落一条
+  renderDrafts();
+}
+
+let edConfirmTimer = null;
+async function publishNote() {
+  const d = edSyncFile();   // 编辑取原日期，新作取当天——不再依赖任何输入框
+  // 编辑 → 沿用原文件名（链接不变）；新作 → 日期 + 发布时刻，同天发多篇也不撞名
+  const filename = edEditFile || `${d}-note-${new Date().toTimeString().slice(0, 8).replace(/:/g, '')}.md`;
+  if (!/^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$/.test(filename))
+    return toast('文件名不合法，请刷新页面重试', 'err');
+  const content = edGetValue();
+  if (content.trim().length < 20) return toast('正文太短了（至少 20 字符）——像样的笔记再发', 'err');
+  // 两段式确认：第一次点 → 按钮变「确认发布？」，3.5 秒内再点才执行。
+  // 不用原生 confirm()：内嵌浏览器/部分环境会静默拦截它，表现为"点了没反应"。
+  const btn = $('edPublishBtn');
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = '1';
+    btn.textContent = '确认发布？（再点一次）';
+    clearTimeout(edConfirmTimer);
+    edConfirmTimer = setTimeout(() => { delete btn.dataset.armed; btn.textContent = '提交发布'; }, 3500);
+    return;
+  }
+  clearTimeout(edConfirmTimer);
+  delete btn.dataset.armed;
+  btn.textContent = '提交发布';
+  if (!edToken()) return askToken('发布需要笔记口令——输一次，浏览器就记住', filename, content);
+  await doPublish(filename, content);
+}
+
+function askToken(msg, filename, content) {
+  edPending = { filename, content };
+  $('edAuthBox').style.display = '';
+  $('edToken').focus();
+  toast(msg, 'info');
+}
+
+async function edRetryPublish() {
+  const v = $('edToken').value.trim();
+  if (!v) return;
+  localStorage.setItem(ED_TOKEN_KEY, v);
+  $('edToken').value = '';
+  $('edAuthBox').style.display = 'none';
+  if (edPending) { const p = edPending; edPending = null; await doPublish(p.filename, p.content); }
+}
+
+async function doPublish(filename, content) {
+  const btn = $('edPublishBtn');
+  btn.disabled = true; btn.textContent = '发布中…';
+  try {
+    const d = await edApi('/api/admin/notes/publish', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, content }),
+    });
+    let msg = d.update ? '笔记已更新' : '笔记已发布';
+    if (d.committed) msg += `，git 提交 ${d.commit}`;
+    else msg += '（内容与上次一致，无新提交）';
+    if (d.pushed) msg += '，已推送 GitHub';
+    if (d.push_msg) msg += '；GitHub 推送失败：' + d.push_msg;
+    toast(msg, 'ok', 7000);
+    // 发布成功：清掉本会话草稿（内容已在仓库里，留着是过期副本）
+    edSaveAll(edDrafts().filter(x => x.id !== edDraftId));
+    edDraftId = edNewDraftId();
+    edLastSaved = content;
+    loadList();
+    location.hash = '#/' + filename;
+  } catch (e) {
+    if (e.status === 401) {
+      edPending = { filename, content };
+      $('edAuthBox').style.display = '';
+      $('edToken').focus();
+      toast('口令不对，再试一次', 'err');
+    } else {
+      toast('发布失败：' + e.message, 'err', 7000);
+    }
+  }
+  btn.disabled = false; btn.textContent = '提交发布';
+}
+
+/* ==================== 启动 ==================== */
+/* 必须放在最后：所有 let/const 与函数都已就绪，route() 才能安全处理 #/new 直达 */
+route();
+loadList();
+</script>
+</body>
+</html>

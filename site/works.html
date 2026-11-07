@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yubble · 作品</title>
+<link rel="stylesheet" href="style.css?v=10">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html">Yubble</a>
+    <div class="nav-links">
+      <a href="index.html">首页</a>
+      <a class="active" href="works.html">作品</a>
+      <a href="notes.html">笔记</a>
+    </div>
+  </div>
+</nav>
+
+<div class="page">
+
+  <header style="margin-bottom:8px;">
+    <h1 class="page-title">作品</h1>
+    <p class="page-sub">独立完成、真实可用的应用。</p>
+  </header>
+
+  <section>
+    <div class="works">
+
+      <div class="work">
+        <div class="work-head">
+          <h3>AI 店铺助手</h3>
+          <span class="badge live">公网运行中</span>
+        </div>
+        <div class="cap">它做什么</div>
+        <p>24 小时在线的门店智能客服：查商品价格、算多件优惠与满减、答会员权益、比单价；答不上来自动转人工并登记留言。配套管理台支持知识库上传审批、促销维护、留言处理与操作审计。</p>
+        <div class="cap">怎么实现</div>
+        <p>LlamaIndex ReAct Agent 编排 9 个业务工具；bge 向量 + BM25 + RRF 三路混合检索保证召回精度；25 用例评测集守护回答质量；FastAPI + SQLite + Docker + Nginx 云上部署。</p>
+        <a class="go" href="/agent/">进入体验 →</a>
+      </div>
+
+      <div class="work">
+        <div class="work-head">
+          <h3>个人门户（本站）</h3>
+          <span class="badge live">公网运行中</span>
+        </div>
+        <p>纯静态多页站点：简历式首页、作品陈列、学习笔记。一台云服务器上与 Agent 共存，
+        Nginx 按路径分发流量。</p>
+        <div class="meta">原生 HTML/CSS · 零依赖 · Volume 挂载热更新</div>
+      </div>
+
+      <div class="work">
+        <div class="work-head">
+          <h3>【待填】下一个应用</h3>
+          <span class="badge wip">建设中</span>
+        </div>
+        <p class="todo" style="color:#c8c8c8; font-style:italic;">正在构思：写你打算做的东西，或者删掉这张卡片。</p>
+      </div>
+
+    </div>
+  </section>
+
+  <footer>
+    <span>© 2026 Yubble</span>
+    <span><a href="/hello">服务器探针</a></span>
+  </footer>
+
+</div>
+</body>
+</html>
