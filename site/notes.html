@@ -74,6 +74,7 @@
       <div class="editor-bar">
         <button id="edPreviewBtn" onclick="togglePreview()">预览</button>
         <button onclick="toggleDrafts()">草稿箱</button>
+        <button onclick="bakeSpacing()" title="在中英文之间补上空格——代码块、链接地址不受影响">中英间距</button>
         <button class="primary" id="edPublishBtn" onclick="publishNote()">提交发布</button>
         <span class="ed-auto" id="edAuto">自动保存：待命</span>
         <span style="font-size:12.5px;color:#78716c">发布 = 写入仓库 + git 提交，落盘即上线；首次发布会要一次笔记口令</span>
@@ -102,7 +103,7 @@
 
 <script>
 const NOTES_DIR = 'notes/';
-console.log('[notes] 页面版本 2026-11-07-r5（口令浮层全局化 + CDN 降级）');
+console.log('[notes] 页面版本 2026-11-08-r6（盘古之白：中英间距整形 + 渲染层自动补白）');
 const $ = id => document.getElementById(id);
 const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -195,6 +196,7 @@ async function showNote(file) {
     const md = await (await fetch(NOTES_DIR + file)).text();
     if (typeof marked === 'undefined') throw new Error('Markdown 渲染库加载失败（检查网络/CDN）');
     box.innerHTML = fixRelativeUrls(DOMPurify.sanitize(marked.parse(md, { breaks: true })));
+    panguNode(box);   // 盘古之白：渲染层统一补中英间隔（旧文章也受益）
     document.title = (md.match(/^#\s+(.+)$/m) || [])[1] + ' · Yubble';
   } catch (e) {
     box.innerHTML = '<div class="note-loading">笔记加载失败：' + esc(e.message) + '</div>';
@@ -368,6 +370,7 @@ function togglePreview() {
     $('edPreview').innerHTML = (typeof marked !== 'undefined')
       ? fixRelativeUrls(DOMPurify.sanitize(marked.parse(md || '*（空空如也）', { breaks: true })))
       : 'Markdown 渲染库未加载（检查网络）';
+    if (typeof marked !== 'undefined') panguNode($('edPreview'));
   }
   if (edVditor && edReady) edVditor.vditor.element.style.display = edPreviewOn ? 'none' : '';
   else if (edFallback) $('edTextRaw').style.display = edPreviewOn ? 'none' : '';
@@ -580,6 +583,52 @@ async function doPublish(filename, content) {
     }
   }
   btn.disabled = false; btn.textContent = '提交发布';
+}
+
+
+/* ============ 盘古之白：中英文之间自动补空格 ============ */
+const PANGU_CJK = '[\\u4e00-\\u9fff\\u3400-\\u4dbf]';
+
+// 渲染后处理：只动文本节点，代码块/行内代码一律不碰
+function panguNode(root) {
+  const re1 = new RegExp('(' + PANGU_CJK + ')([A-Za-z0-9])', 'g');
+  const re2 = new RegExp('([A-Za-z0-9])(' + PANGU_CJK + ')', 'g');
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      return (n.parentElement && n.parentElement.closest('pre, code, style, script'))
+        ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(n => {
+    const v = n.nodeValue;
+    const nv = v.replace(re1, '$1 $2').replace(re2, '$1 $2');
+    if (nv !== v) n.nodeValue = nv;
+  });
+}
+
+// 源码整形：保护行内代码/链接图片 URL/HTML 标签后统一补空格
+function panguSource(md) {
+  const stash = [];
+  const keep = s => '\x00' + (stash.push(s) - 1) + '\x00';
+  const out = md
+    .replace(/(`+[^`\n]*`+)/g, keep)
+    .replace(/(!?\[[^\]]*\]\()([^)\s]+)([^)]*\))/g, (m, a, url, b) => a + keep(url) + b)
+    .replace(/<[^>\n]+>/g, keep)
+    .replace(new RegExp('(' + PANGU_CJK + ')([A-Za-z0-9])', 'g'), '$1 $2')
+    .replace(new RegExp('([A-Za-z0-9])(' + PANGU_CJK + ')', 'g'), '$1 $2');
+  return out.replace(/\x00(\d+)\x00/g, (m, i) => stash[+i]);
+}
+
+// 一键整形：把空格写进正文（编辑器内容即发布内容）
+function bakeSpacing() {
+  const md = edGetValue();
+  const out = panguSource(md);
+  if (out === md) { toast('中英文之间已经都有空格了，无需整形', 'info'); return; }
+  edSetValue(out);
+  saveSession();
+  toast('已为中英文之间补上空格（自动保存会记录本次修改）', 'ok');
 }
 
 /* ==================== 启动 ==================== */

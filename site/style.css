@@ -196,6 +196,9 @@ footer a:hover { color: #ea580c; }
 .md-body > p { text-indent: 2em; }
 /* 编辑器所见即所得同步缩进：写作时看到的 = 发布后的样子 */
 .vditor-wysiwyg .vditor-reset > p { text-indent: 2em; }
+/* 盘古之白显示层兜底：原生 text-autospace（Chrome 128+/Safari 18.4+）——
+   未整形的内容也显示中英视觉间隔；已有空格处不会重复加 */
+.md-body, .vditor-wysiwyg .vditor-reset { text-autospace: normal; }
 .md-body img { max-width: 100%; border-radius: 8px; margin: 10px 0; display: block; }
 .md-body code {
   background: #faf3e7; border: 1px solid #f0e4cf; border-radius: 4px;
