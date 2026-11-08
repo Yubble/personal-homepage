@@ -191,6 +191,11 @@ footer a:hover { color: #ea580c; }
 .md-body h2 { font-size: 19px; font-weight: 700; margin: 28px 0 10px; padding-left: 12px; border-left: 4px solid #ea580c; color: #1c1917; }
 .md-body h3 { font-size: 16px; font-weight: 700; margin: 22px 0 8px; color: #1c1917; }
 .md-body p { margin: 10px 0; font-size: 15px; }
+/* 中文排版：正文段落首行缩进两字。
+   只缩顶层段落（> 直接子级）——引用/列表/表格里的段落不缩，嵌进容器再缩会显得突兀 */
+.md-body > p { text-indent: 2em; }
+/* 编辑器所见即所得同步缩进：写作时看到的 = 发布后的样子 */
+.vditor-wysiwyg .vditor-reset > p { text-indent: 2em; }
 .md-body img { max-width: 100%; border-radius: 8px; margin: 10px 0; display: block; }
 .md-body code {
   background: #faf3e7; border: 1px solid #f0e4cf; border-radius: 4px;
