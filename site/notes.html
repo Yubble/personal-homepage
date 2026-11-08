@@ -92,6 +92,19 @@
 
 </div>
 
+<!-- AI 校对报告浮层 -->
+<div id="proofModal" style="display:none;position:fixed;inset:0;background:rgba(28,25,23,.4);z-index:70">
+  <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(680px,92vw);max-height:80vh;overflow:auto;background:#fff;border-radius:12px;padding:22px 26px;box-shadow:0 20px 60px rgba(0,0,0,.25)">
+    <h3 style="margin:0 0 6px;font-size:17px">AI 校对报告</h3>
+    <div id="proofSummary" style="font-size:12.5px;color:#78716c;margin-bottom:12px"></div>
+    <div id="proofList"></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px">
+      <button onclick="closeProof(true)">回去修改</button>
+      <button class="primary" onclick="closeProof(false)">忽略，直接发布</button>
+    </div>
+  </div>
+</div>
+
 <!-- 口令浮层：全局挂载，列表/详情/写作三个视图都可能弹——
      曾放在写作视图里，详情页点删除时输入框跟着视图一起被藏起来，口令无处可输 -->
 <div class="editor-auth" id="edAuthBox" style="display:none;position:fixed;left:50%;bottom:32px;transform:translateX(-50%);z-index:60;background:#fff;border:1px solid #e0d6c4;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.14);padding:14px 18px;margin:0">
@@ -103,7 +116,7 @@
 
 <script>
 const NOTES_DIR = 'notes/';
-console.log('[notes] 页面版本 2026-11-08-r6（盘古之白：中英间距整形 + 渲染层自动补白）');
+console.log('[notes] 页面版本 2026-11-08-r7（AI 校对）（盘古之白：中英间距整形 + 渲染层自动补白）');
 const $ = id => document.getElementById(id);
 const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -482,7 +495,7 @@ async function publishNote() {
   delete btn.dataset.armed;
   btn.textContent = '提交发布';
   if (!edToken()) return askToken('发布需要笔记口令——输一次，浏览器就记住', { type: 'publish', filename, content });
-  await doPublish(filename, content);
+  await aiCheckThenPublish(filename, content);
 }
 
 function askToken(msg, pending) {
@@ -503,6 +516,7 @@ async function edRetryPublish() {
     const p = edPending; edPending = null;
     $('edAuthBtn').textContent = '验证并发布';
     if (p.type === 'delete') await doDeleteNote(p.file);
+    else if (p.type === 'proofread') await aiCheckThenPublish(p.filename, p.content);
     else await doPublish(p.filename, p.content);
   }
 }
@@ -629,6 +643,54 @@ function bakeSpacing() {
   edSetValue(out);
   saveSession();
   toast('已为中英文之间补上空格（自动保存会记录本次修改）', 'ok');
+}
+
+
+/* ============ AI 校对：发布前过一遍错别字/拼写/大小写 ============ */
+let edProofPending = null;
+
+async function aiCheckThenPublish(filename, content) {
+  const btn = $('edPublishBtn');
+  btn.disabled = true; btn.textContent = 'AI 检查中…';
+  try {
+    const d = await edApi('/api/admin/notes/proofread', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    btn.disabled = false; btn.textContent = '提交发布';
+    if (d.issues && d.issues.length) { showProof(d, filename, content); return; }
+    toast(d.summary || 'AI 检查通过：未发现错别字或拼写问题', 'ok', 5000);
+    await doPublish(filename, content);
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '提交发布';
+    if (e.status === 401) {
+      edPending = { type: 'proofread', filename, content };
+      $('edAuthBox').style.display = '';
+      $('edToken').focus();
+      toast('AI 检查也需要笔记口令——输一次浏览器就记住', 'err');
+    } else {
+      toast('AI 检查不可用（' + e.message + '），跳过检查直接发布', 'info', 6000);
+      await doPublish(filename, content);
+    }
+  }
+}
+
+function showProof(d, filename, content) {
+  edProofPending = { filename, content };
+  $('proofSummary').textContent = 'AI 共发现 ' + d.issues.length + ' 处疑似问题。' + (d.summary || '');
+  $('proofList').innerHTML = d.issues.map(i => `
+    <div class="proof-item">
+      <span class="proof-tag">${esc(i.type || '问题')}</span>
+      <span class="proof-fix">${esc(i.original || '')} → ${esc(i.suggest || '')}</span>
+      ${i.reason ? `<div class="proof-reason">${esc(i.reason)}</div>` : ''}
+    </div>`).join('');
+  $('proofModal').style.display = '';
+}
+
+function closeProof(edit) {
+  const p = edProofPending; edProofPending = null;
+  $('proofModal').style.display = 'none';
+  if (!edit && p) doPublish(p.filename, p.content);
 }
 
 /* ==================== 启动 ==================== */

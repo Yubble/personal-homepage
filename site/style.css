@@ -282,3 +282,11 @@ footer a:hover { color: #ea580c; }
   .entry .when { width: auto; }
   .nav-links { gap: 16px; }
 }
+
+/* AI 校对报告浮层 */
+.proof-item { border: 1px solid #f0e4cf; background: #fdf9f2; border-radius: 8px; padding: 10px 14px; margin: 8px 0; font-size: 13.5px; }
+.proof-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; background: #fee2e2; color: #b91c1c; font-size: 12px; margin-right: 8px; }
+.proof-fix { font-weight: 600; color: #1c1917; }
+.proof-reason { margin-top: 4px; font-size: 12.5px; color: #78716c; }
+#proofModal button { padding: 8px 16px; border: 1px solid #e0d6c4; background: #fff; border-radius: 6px; font-size: 13.5px; cursor: pointer; }
+#proofModal button.primary { background: #ea580c; border-color: #ea580c; color: #fff; }
