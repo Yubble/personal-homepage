@@ -12,9 +12,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import ROOT_DIR
 from app.notes_admin import router as notes_router
+from app.proofread import router as proofread_router
 
 app = FastAPI(title="Yubble 个人主页", docs_url=None, redoc_url=None)
 app.include_router(notes_router)
+app.include_router(proofread_router)
 
 
 # ── 轻量限流 + 爆破封禁 ─────────────────────────────

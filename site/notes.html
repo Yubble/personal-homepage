@@ -5,10 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-store">
 <title>Yubble · 学习笔记</title>
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 <!-- Markdown 渲染（详情/预览） + XSS 消毒 -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script>window.marked || document.write('<script src="https://unpkg.com/marked@12.0.2/marked.min.js"><\/script>')</script>
+<script>window.marked || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"><\/script>')</script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script>window.DOMPurify || document.write('<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"><\/script>')</script>
+<script>window.DOMPurify || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"><\/script>')</script>
 <!-- 写作台所见即所得编辑器：像写文档一样排版，底层自动存 Markdown -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vditor@3.10.4/dist/index.css">
 <script src="https://cdn.jsdelivr.net/npm/vditor@3.10.4/dist/index.min.js"></script>
@@ -51,6 +55,8 @@
     <a class="note-back" href="notes.html">← 返回笔记列表</a>
     <div style="text-align:right;margin:-10px 0 20px">
       <a class="write-entry" id="editEntry" href="#/new">编辑这篇</a>
+      <button class="write-entry" id="delEntry" onclick="deleteNote()"
+              style="margin-left:12px;color:#b91c1c;border-color:#fca5a5">删除这篇</button>
     </div>
   </div>
 
@@ -61,12 +67,6 @@
       <div class="editor-head">
         <h2 id="edHead">写一篇新笔记</h2>
       </div>
-      <div class="editor-auth" id="edAuthBox" style="display:none">
-        <input type="password" id="edToken" placeholder="笔记口令" style="width:180px" autocomplete="off"
-               onkeydown="if(event.key==='Enter')edRetryPublish()">
-        <button class="primary" onclick="edRetryPublish()">验证并发布</button>
-        <span style="font-size:12.5px;color:#78716c">只需发布时输入一次，浏览器会记住；写和暂存全程不需要</span>
-      </div>
       <div class="editor-meta">
         <label>日期 <span class="ed-file" id="edDateChip">—</span></label>
         <span class="ed-file" id="edFile">—</span>
@@ -74,6 +74,7 @@
       <div class="editor-bar">
         <button id="edPreviewBtn" onclick="togglePreview()">预览</button>
         <button onclick="toggleDrafts()">草稿箱</button>
+        <button onclick="bakeSpacing()" title="在中英文之间补上空格——代码块、链接地址不受影响">中英间距</button>
         <button class="primary" id="edPublishBtn" onclick="publishNote()">提交发布</button>
         <span class="ed-auto" id="edAuto">自动保存：待命</span>
         <span style="font-size:12.5px;color:#78716c">发布 = 写入仓库 + git 提交，落盘即上线；首次发布会要一次笔记口令</span>
@@ -91,9 +92,31 @@
 
 </div>
 
+<!-- AI 校对报告浮层 -->
+<div id="proofModal" style="display:none;position:fixed;inset:0;background:rgba(28,25,23,.4);z-index:70">
+  <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(680px,92vw);max-height:80vh;overflow:auto;background:#fff;border-radius:12px;padding:22px 26px;box-shadow:0 20px 60px rgba(0,0,0,.25)">
+    <h3 style="margin:0 0 6px;font-size:17px">AI 校对报告</h3>
+    <div id="proofSummary" style="font-size:12.5px;color:#78716c;margin-bottom:12px"></div>
+    <div id="proofList"></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px">
+      <button onclick="closeProof(true)">回去修改</button>
+      <button class="primary" onclick="closeProof(false)">忽略，直接发布</button>
+    </div>
+  </div>
+</div>
+
+<!-- 口令浮层：全局挂载，列表/详情/写作三个视图都可能弹——
+     曾放在写作视图里，详情页点删除时输入框跟着视图一起被藏起来，口令无处可输 -->
+<div class="editor-auth" id="edAuthBox" style="display:none;position:fixed;left:50%;bottom:32px;transform:translateX(-50%);z-index:60;background:#fff;border:1px solid #e0d6c4;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.14);padding:14px 18px;margin:0">
+  <input type="password" id="edToken" placeholder="笔记口令" style="width:180px" autocomplete="off"
+         onkeydown="if(event.key==='Enter')edRetryPublish()">
+  <button class="primary" id="edAuthBtn" onclick="edRetryPublish()">验证并发布</button>
+  <span style="font-size:12.5px;color:#78716c">只需发布/删除时输入一次，浏览器会记住；写作全程不需要</span>
+</div>
+
 <script>
 const NOTES_DIR = 'notes/';
-console.log('[notes] 页面版本 2026-11-07-r4（修复发布请求头丢失）');
+console.log('[notes] 页面版本 2026-11-08-r7（AI 校对）（盘古之白：中英间距整形 + 渲染层自动补白）');
 const $ = id => document.getElementById(id);
 const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -186,6 +209,7 @@ async function showNote(file) {
     const md = await (await fetch(NOTES_DIR + file)).text();
     if (typeof marked === 'undefined') throw new Error('Markdown 渲染库加载失败（检查网络/CDN）');
     box.innerHTML = fixRelativeUrls(DOMPurify.sanitize(marked.parse(md, { breaks: true })));
+    panguNode(box);   // 盘古之白：渲染层统一补中英间隔（旧文章也受益）
     document.title = (md.match(/^#\s+(.+)$/m) || [])[1] + ' · Yubble';
   } catch (e) {
     box.innerHTML = '<div class="note-loading">笔记加载失败：' + esc(e.message) + '</div>';
@@ -207,6 +231,10 @@ function showDetail(file) {
   $('editorView').style.display = 'none';
   $('detailView').style.display = '';
   $('editEntry').href = '#/edit/' + file;
+  edDetailFile = file;
+  const delBtn = $('delEntry');
+  delete delBtn.dataset.armed;          // 每次进入详情重置两段式确认
+  delBtn.textContent = '删除这篇';
   showNote(file);
   window.scrollTo(0, 0);
 }
@@ -215,6 +243,7 @@ function showList() {
   $('editorView').style.display = 'none';
   $('listView').style.display = '';
   document.title = 'Yubble · 学习笔记';
+  edDetailFile = null;
 }
 window.addEventListener('hashchange', route);
 // route()/loadList() 的首次调用放在整个脚本最末尾——
@@ -229,7 +258,8 @@ const ED_DRAFTS_KEY = 'kb_note_drafts';
 let edPreviewOn = false;
 let edDraftsOpen = false;
 let edEditFile = null;    // 编辑已有笔记时锁定原文件名；新作为 null（发布时自动命名）
-let edPending = null;     // 401 后待重发的 {filename, content}
+let edPending = null;     // 401 后待重发的动作 {type:'publish'|'delete', ...}
+let edDetailFile = null;  // 详情视图当前展示的文件名（删除按钮用）
 
 const edToken = () => localStorage.getItem(ED_TOKEN_KEY) || '';
 async function edApi(path, opt) {
@@ -353,6 +383,7 @@ function togglePreview() {
     $('edPreview').innerHTML = (typeof marked !== 'undefined')
       ? fixRelativeUrls(DOMPurify.sanitize(marked.parse(md || '*（空空如也）', { breaks: true })))
       : 'Markdown 渲染库未加载（检查网络）';
+    if (typeof marked !== 'undefined') panguNode($('edPreview'));
   }
   if (edVditor && edReady) edVditor.vditor.element.style.display = edPreviewOn ? 'none' : '';
   else if (edFallback) $('edTextRaw').style.display = edPreviewOn ? 'none' : '';
@@ -463,12 +494,13 @@ async function publishNote() {
   clearTimeout(edConfirmTimer);
   delete btn.dataset.armed;
   btn.textContent = '提交发布';
-  if (!edToken()) return askToken('发布需要笔记口令——输一次，浏览器就记住', filename, content);
-  await doPublish(filename, content);
+  if (!edToken()) return askToken('发布需要笔记口令——输一次，浏览器就记住', { type: 'publish', filename, content });
+  await aiCheckThenPublish(filename, content);
 }
 
-function askToken(msg, filename, content) {
-  edPending = { filename, content };
+function askToken(msg, pending) {
+  edPending = pending;
+  $('edAuthBtn').textContent = pending.type === 'delete' ? '验证并删除' : '验证并发布';
   $('edAuthBox').style.display = '';
   $('edToken').focus();
   toast(msg, 'info');
@@ -480,7 +512,58 @@ async function edRetryPublish() {
   localStorage.setItem(ED_TOKEN_KEY, v);
   $('edToken').value = '';
   $('edAuthBox').style.display = 'none';
-  if (edPending) { const p = edPending; edPending = null; await doPublish(p.filename, p.content); }
+  if (edPending) {
+    const p = edPending; edPending = null;
+    $('edAuthBtn').textContent = '验证并发布';
+    if (p.type === 'delete') await doDeleteNote(p.file);
+    else if (p.type === 'proofread') await aiCheckThenPublish(p.filename, p.content);
+    else await doPublish(p.filename, p.content);
+  }
+}
+
+let delTimer = null;
+
+async function deleteNote() {
+  const file = edDetailFile;
+  if (!file) return;
+  const btn = $('delEntry');
+  // 两段式确认：第一击变"确认删除？"，3.5 秒内再击才真删（防手滑）
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = '1';
+    btn.textContent = '确认删除？';
+    clearTimeout(delTimer);
+    delTimer = setTimeout(() => { delete btn.dataset.armed; btn.textContent = '删除这篇'; }, 3500);
+    return;
+  }
+  clearTimeout(delTimer); delete btn.dataset.armed;
+  if (!edToken()) {
+    askToken('删除也需要笔记口令——输一次浏览器就记住', { type: 'delete', file });
+    btn.textContent = '删除这篇';
+    return;
+  }
+  btn.textContent = '删除中…';
+  await doDeleteNote(file);
+}
+
+async function doDeleteNote(file) {
+  try {
+    const d = await edApi('/api/admin/notes/delete/' + encodeURIComponent(file), { method: 'POST' });
+    // 清掉这篇笔记关联的草稿（内容已随文件一起没了，留着会指向不存在的文件）
+    edSaveAll(edDrafts().filter(x => x.filename !== file));
+    toast(d.committed ? '已删除，git 提交 ' + d.commit : '已删除', 'ok', 6000);
+    loadList();
+    location.hash = '';   // 回列表（此时详情页目标已不存在）
+  } catch (e) {
+    if (e.status === 401) {
+      edPending = { type: 'delete', file };
+      $('edAuthBox').style.display = '';
+      $('edToken').focus();
+      toast('口令不对，再试一次', 'err');
+    } else {
+      toast('删除失败：' + e.message, 'err', 7000);
+    }
+  }
+  $('delEntry').textContent = '删除这篇';
 }
 
 async function doPublish(filename, content) {
@@ -505,7 +588,7 @@ async function doPublish(filename, content) {
     location.hash = '#/' + filename;
   } catch (e) {
     if (e.status === 401) {
-      edPending = { filename, content };
+      edPending = { type: 'publish', filename, content };
       $('edAuthBox').style.display = '';
       $('edToken').focus();
       toast('口令不对，再试一次', 'err');
@@ -514,6 +597,100 @@ async function doPublish(filename, content) {
     }
   }
   btn.disabled = false; btn.textContent = '提交发布';
+}
+
+
+/* ============ 盘古之白：中英文之间自动补空格 ============ */
+const PANGU_CJK = '[\\u4e00-\\u9fff\\u3400-\\u4dbf]';
+
+// 渲染后处理：只动文本节点，代码块/行内代码一律不碰
+function panguNode(root) {
+  const re1 = new RegExp('(' + PANGU_CJK + ')([A-Za-z0-9])', 'g');
+  const re2 = new RegExp('([A-Za-z0-9])(' + PANGU_CJK + ')', 'g');
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      return (n.parentElement && n.parentElement.closest('pre, code, style, script'))
+        ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(n => {
+    const v = n.nodeValue;
+    const nv = v.replace(re1, '$1 $2').replace(re2, '$1 $2');
+    if (nv !== v) n.nodeValue = nv;
+  });
+}
+
+// 源码整形：保护行内代码/链接图片 URL/HTML 标签后统一补空格
+function panguSource(md) {
+  const stash = [];
+  const keep = s => '\x00' + (stash.push(s) - 1) + '\x00';
+  const out = md
+    .replace(/(`+[^`\n]*`+)/g, keep)
+    .replace(/(!?\[[^\]]*\]\()([^)\s]+)([^)]*\))/g, (m, a, url, b) => a + keep(url) + b)
+    .replace(/<[^>\n]+>/g, keep)
+    .replace(new RegExp('(' + PANGU_CJK + ')([A-Za-z0-9])', 'g'), '$1 $2')
+    .replace(new RegExp('([A-Za-z0-9])(' + PANGU_CJK + ')', 'g'), '$1 $2');
+  return out.replace(/\x00(\d+)\x00/g, (m, i) => stash[+i]);
+}
+
+// 一键整形：把空格写进正文（编辑器内容即发布内容）
+function bakeSpacing() {
+  const md = edGetValue();
+  const out = panguSource(md);
+  if (out === md) { toast('中英文之间已经都有空格了，无需整形', 'info'); return; }
+  edSetValue(out);
+  saveSession();
+  toast('已为中英文之间补上空格（自动保存会记录本次修改）', 'ok');
+}
+
+
+/* ============ AI 校对：发布前过一遍错别字/拼写/大小写 ============ */
+let edProofPending = null;
+
+async function aiCheckThenPublish(filename, content) {
+  const btn = $('edPublishBtn');
+  btn.disabled = true; btn.textContent = 'AI 检查中…';
+  try {
+    const d = await edApi('/api/admin/notes/proofread', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    btn.disabled = false; btn.textContent = '提交发布';
+    if (d.issues && d.issues.length) { showProof(d, filename, content); return; }
+    toast(d.summary || 'AI 检查通过：未发现错别字或拼写问题', 'ok', 5000);
+    await doPublish(filename, content);
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '提交发布';
+    if (e.status === 401) {
+      edPending = { type: 'proofread', filename, content };
+      $('edAuthBox').style.display = '';
+      $('edToken').focus();
+      toast('AI 检查也需要笔记口令——输一次浏览器就记住', 'err');
+    } else {
+      toast('AI 检查不可用（' + e.message + '），跳过检查直接发布', 'info', 6000);
+      await doPublish(filename, content);
+    }
+  }
+}
+
+function showProof(d, filename, content) {
+  edProofPending = { filename, content };
+  $('proofSummary').textContent = 'AI 共发现 ' + d.issues.length + ' 处疑似问题。' + (d.summary || '');
+  $('proofList').innerHTML = d.issues.map(i => `
+    <div class="proof-item">
+      <span class="proof-tag">${esc(i.type || '问题')}</span>
+      <span class="proof-fix">${esc(i.original || '')} → ${esc(i.suggest || '')}</span>
+      ${i.reason ? `<div class="proof-reason">${esc(i.reason)}</div>` : ''}
+    </div>`).join('');
+  $('proofModal').style.display = '';
+}
+
+function closeProof(edit) {
+  const p = edProofPending; edProofPending = null;
+  $('proofModal').style.display = 'none';
+  if (!edit && p) doPublish(p.filename, p.content);
 }
 
 /* ==================== 启动 ==================== */
