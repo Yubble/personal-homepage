@@ -8,7 +8,11 @@
 <link rel="stylesheet" href="style.css?v=10">
 <!-- Markdown 渲染（详情/预览） + XSS 消毒 -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script>window.marked || document.write('<script src="https://unpkg.com/marked@12.0.2/marked.min.js"><\/script>')</script>
+<script>window.marked || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"><\/script>')</script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script>window.DOMPurify || document.write('<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"><\/script>')</script>
+<script>window.DOMPurify || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"><\/script>')</script>
 <!-- 写作台所见即所得编辑器：像写文档一样排版，底层自动存 Markdown -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vditor@3.10.4/dist/index.css">
 <script src="https://cdn.jsdelivr.net/npm/vditor@3.10.4/dist/index.min.js"></script>
@@ -63,12 +67,6 @@
       <div class="editor-head">
         <h2 id="edHead">写一篇新笔记</h2>
       </div>
-      <div class="editor-auth" id="edAuthBox" style="display:none">
-        <input type="password" id="edToken" placeholder="笔记口令" style="width:180px" autocomplete="off"
-               onkeydown="if(event.key==='Enter')edRetryPublish()">
-        <button class="primary" id="edAuthBtn" onclick="edRetryPublish()">验证并发布</button>
-        <span style="font-size:12.5px;color:#78716c">只需发布/删除时输入一次，浏览器会记住；写作全程不需要</span>
-      </div>
       <div class="editor-meta">
         <label>日期 <span class="ed-file" id="edDateChip">—</span></label>
         <span class="ed-file" id="edFile">—</span>
@@ -93,9 +91,18 @@
 
 </div>
 
+<!-- 口令浮层：全局挂载，列表/详情/写作三个视图都可能弹——
+     曾放在写作视图里，详情页点删除时输入框跟着视图一起被藏起来，口令无处可输 -->
+<div class="editor-auth" id="edAuthBox" style="display:none;position:fixed;left:50%;bottom:32px;transform:translateX(-50%);z-index:60;background:#fff;border:1px solid #e0d6c4;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.14);padding:14px 18px;margin:0">
+  <input type="password" id="edToken" placeholder="笔记口令" style="width:180px" autocomplete="off"
+         onkeydown="if(event.key==='Enter')edRetryPublish()">
+  <button class="primary" id="edAuthBtn" onclick="edRetryPublish()">验证并发布</button>
+  <span style="font-size:12.5px;color:#78716c">只需发布/删除时输入一次，浏览器会记住；写作全程不需要</span>
+</div>
+
 <script>
 const NOTES_DIR = 'notes/';
-console.log('[notes] 页面版本 2026-11-07-r4（修复发布请求头丢失）');
+console.log('[notes] 页面版本 2026-11-07-r5（口令浮层全局化 + CDN 降级）');
 const $ = id => document.getElementById(id);
 const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
