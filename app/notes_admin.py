@@ -207,9 +207,12 @@ def publish_note(
 
     pushed, push_msg = False, ""
     if get_settings().notes_git_push:
+        # 推送前先同步远端：GitHub 可能被本地发布或其他机器推进过——
+        # 不先 pull 必然 non-fast-forward 被拒（多端写作的真实场景）
+        pre = _git(["pull", "--rebase", "--autostash", "origin", "main"])
         push = _git(["push", "origin", "HEAD"])
         pushed = push.returncode == 0
-        push_msg = "" if pushed else push.stderr.strip()[:200]
+        push_msg = "" if pushed else (push.stderr.strip()[:160] or pre.stderr.strip()[:160])
 
     _audit(
         "notes.publish", body.filename,
