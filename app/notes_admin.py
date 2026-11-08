@@ -245,8 +245,13 @@ def delete_note(
     p.unlink()
     _rebuild_manifest()
     result = _git_commit("site/notes", title, "删除")
-    _audit("notes.delete", filename, {"title": title, "commit": result["commit"]})
-    return {"ok": True, "filename": filename, "committed": result["committed"], "commit": result["commit"]}
+    pushed, push_msg = False, ""
+    if get_settings().notes_git_push:
+        push = _git(["push", "origin", "HEAD"])
+        pushed = push.returncode == 0
+        push_msg = "" if pushed else push.stderr.strip()[:200]
+    _audit("notes.delete", filename, {"title": title, "commit": result["commit"], "pushed": pushed})
+    return {"ok": True, "filename": filename, "committed": result["committed"], "commit": result["commit"], "pushed": pushed}
 
 
 @router.post("/image")
