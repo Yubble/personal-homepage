@@ -1,10 +1,5 @@
 [
   {
-    "file": "2026-11-08-loop-test2.md",
-    "title": "闭环终验",
-    "date": "2026-11-08"
-  },
-  {
     "file": "2026-11-06-hybrid-retrieval-rrf.md",
     "title": "混合检索实战：向量召回 + BM25 + RRF 融合",
     "date": "2026-11-06"
