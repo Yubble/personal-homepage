@@ -3,10 +3,5 @@
     "file": "2026-11-08-note-155702.md",
     "title": "langChain 和 langGraph 的差别",
     "date": "2026-11-08"
-  },
-  {
-    "file": "2026-11-06-agent-tool-security.md",
-    "title": "Agent 工具安全：能力隔离永远大于提示词约束",
-    "date": "2026-11-06"
   }
 ]
