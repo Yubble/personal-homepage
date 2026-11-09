@@ -74,7 +74,6 @@
       <div class="editor-bar">
         <button id="edPreviewBtn" onclick="togglePreview()">预览</button>
         <button onclick="toggleDrafts()">草稿箱</button>
-        <button onclick="bakeSpacing()" title="在中英文之间补上空格——代码块、链接地址不受影响">中英间距</button>
         <button class="primary" id="edPublishBtn" onclick="publishNote()">提交发布</button>
         <span class="ed-auto" id="edAuto">自动保存：待命</span>
         <span style="font-size:12.5px;color:#78716c">发布 = 写入仓库 + git 提交，落盘即上线；首次发布会要一次笔记口令</span>
@@ -116,7 +115,7 @@
 
 <script>
 const NOTES_DIR = 'notes/';
-console.log('[notes] 页面版本 2026-11-08-r7（AI 校对）（盘古之白：中英间距整形 + 渲染层自动补白）');
+console.log('[notes] 页面版本 2026-11-09-r8（中英间距发布时自动整形，移除手动按钮）（盘古之白：中英间距整形 + 渲染层自动补白）');
 const $ = id => document.getElementById(id);
 const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -567,6 +566,7 @@ async function doDeleteNote(file) {
 }
 
 async function doPublish(filename, content) {
+  content = panguSource(content);   // 发布前自动补中英空格（盘古之白）
   const btn = $('edPublishBtn');
   btn.disabled = true; btn.textContent = '发布中…';
   try {
@@ -635,15 +635,6 @@ function panguSource(md) {
   return out.replace(/\x00(\d+)\x00/g, (m, i) => stash[+i]);
 }
 
-// 一键整形：把空格写进正文（编辑器内容即发布内容）
-function bakeSpacing() {
-  const md = edGetValue();
-  const out = panguSource(md);
-  if (out === md) { toast('中英文之间已经都有空格了，无需整形', 'info'); return; }
-  edSetValue(out);
-  saveSession();
-  toast('已为中英文之间补上空格（自动保存会记录本次修改）', 'ok');
-}
 
 
 /* ============ AI 校对：发布前过一遍错别字/拼写/大小写 ============ */
