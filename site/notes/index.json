@@ -5,11 +5,6 @@
     "date": "2026-11-08"
   },
   {
-    "file": "2026-11-06-docker-cross-arch.md",
-    "title": "Docker 跨架构：为什么本地镜像上不了云",
-    "date": "2026-11-06"
-  },
-  {
     "file": "2026-11-06-agent-tool-security.md",
     "title": "Agent 工具安全：能力隔离永远大于提示词约束",
     "date": "2026-11-06"
