@@ -19,6 +19,10 @@ router = APIRouter(prefix="/api/admin/notes", tags=["notes-proofread"])
 
 MAX_PROOFREAD_CHARS = 8000   # 超长截断送检，控制 token 成本
 LLM_TIMEOUT = 60             # 秒：长文检查给足时间
+# 2026-11-10 线上案例：3 个问题就花 1222 completion tokens，2000 上限下
+# 报 6 个问题即截断（finish_reason=length），JSON 断在半截 →「AI 返回格式异常」。
+# 提到 4000（issues 上限 20 个约 2600 tokens，留足余量）。
+MAX_OUTPUT_TOKENS = 4000
 
 
 class ProofIn(BaseModel):
@@ -34,7 +38,8 @@ PROOF_SYSTEM = """你是中文博客文章的校对编辑。检查文章并只�
 {"issues": [{"type": "错别字|拼写|大小写", "original": "原文片段", "suggest": "建议改为", "reason": "简短理由"}], "summary": "一句话总评"}"""
 
 
-def _chat(system: str, user: str) -> str:
+def _chat(system: str, user: str) -> tuple[str, str]:
+    """调用校对模型，返回 (内容, finish_reason)。失败路径要靠 finish_reason 定位截断。"""
     s = get_settings()
     if not s.llm_api_key or s.llm_api_key == "sk-placeholder":
         raise RuntimeError("未配置 LLM_API_KEY")
@@ -45,7 +50,7 @@ def _chat(system: str, user: str) -> str:
             {"role": "user", "content": user},
         ],
         "temperature": 0.1,
-        "max_tokens": 2000,
+        "max_tokens": MAX_OUTPUT_TOKENS,
         "response_format": {"type": "json_object"},
     }).encode("utf-8")
     req = urllib.request.Request(
@@ -58,7 +63,8 @@ def _chat(system: str, user: str) -> str:
     )
     with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as r:
         data = json.loads(r.read().decode("utf-8"))
-    return data["choices"][0]["message"]["content"]
+    choice = data["choices"][0]
+    return choice["message"].get("content") or "", choice.get("finish_reason", "")
 
 
 @router.post("/proofread")
@@ -73,15 +79,21 @@ def proofread(
     if len(text.strip()) < 10:
         return {"issues": [], "summary": "内容太短，无需检查", "checked_chars": len(text.strip())}
     try:
-        raw = _chat(PROOF_SYSTEM, text)
+        raw, finish = _chat(PROOF_SYSTEM, text)
     except Exception as e:   # 网络失败/格式异常统一 502，前端据此降级
+        print(f"[proofread] 模型调用失败：{type(e).__name__}: {e}")
         raise HTTPException(502, f"AI 服务不可用：{e}")
     m = re.search(r"\{[\s\S]*\}", raw)
     try:
         data = json.loads(m.group(0) if m else raw)
         issues = data.get("issues", [])
     except (json.JSONDecodeError, AttributeError):
-        raise HTTPException(502, "AI 返回格式异常")
+        # 失败细节必须落日志（docker logs 可查），否则只有前端一句"格式异常"没法排障
+        print(f"[proofread] JSON 解析失败：finish_reason={finish}，"
+              f"内容长度={len(raw)}，开头={raw[:150]!r}")
+        if finish == "length":
+            raise HTTPException(502, "AI 输出超长被截断（请稍后重试）")
+        raise HTTPException(502, f"AI 返回格式异常（finish_reason={finish}）")
     return {
         "issues": issues[:20],
         "summary": data.get("summary", ""),
