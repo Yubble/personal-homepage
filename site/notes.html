@@ -580,8 +580,12 @@ async function doPublish(filename, content) {
     if (d.pushed) msg += '，已推送 GitHub';
     if (d.push_msg) msg += '；GitHub 推送失败：' + d.push_msg;
     toast(msg, 'ok', 7000);
-    // 发布成功：清掉本会话草稿（内容已在仓库里，留着是过期副本）
-    edSaveAll(edDrafts().filter(x => x.id !== edDraftId));
+    // 发布成功：清掉本会话草稿 + 同题残稿。
+    // 2026-11-10 案例：刷新页面/新开会话会让同一篇文章产生多条独立草稿
+    // （每条有独立 id），旧逻辑只清当前会话那条，同题残稿永久堆积。
+    // 内容已在仓库里，同题草稿都是过期副本，一并清掉。
+    const pubTitle = edTitle(content);
+    edSaveAll(edDrafts().filter(x => x.id !== edDraftId && x.title !== pubTitle));
     edDraftId = edNewDraftId();
     edLastSaved = content;
     loadList();
