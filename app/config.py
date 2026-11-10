@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     llm_api_key: str = "sk-placeholder"
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
+
+    # ---- Langfuse 观测（可选：不配置 key 时静默关闭）----
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "https://cloud.langfuse.com"
     model_config = {"env_file": str(ROOT_DIR / ".env"), "extra": "ignore"}
 
 

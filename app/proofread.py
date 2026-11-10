@@ -38,8 +38,10 @@ PROOF_SYSTEM = """你是中文博客文章的校对编辑。检查文章并只�
 {"issues": [{"type": "错别字|拼写|大小写", "original": "原文片段", "suggest": "建议改为", "reason": "简短理由"}], "summary": "一句话总评"}"""
 
 
-def _chat(system: str, user: str) -> tuple[str, str]:
-    """调用校对模型，返回 (内容, finish_reason)。失败路径要靠 finish_reason 定位截断。"""
+def _chat(system: str, user: str) -> tuple[str, str, dict]:
+    """调用校对模型，返回 (内容, finish_reason, usage)。失败路径要靠 finish_reason 定位截断。"""
+    import time
+
     s = get_settings()
     if not s.llm_api_key or s.llm_api_key == "sk-placeholder":
         raise RuntimeError("未配置 LLM_API_KEY")
@@ -61,10 +63,56 @@ def _chat(system: str, user: str) -> tuple[str, str]:
             "Content-Type": "application/json",
         },
     )
+    t0 = time.monotonic()
     with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as r:
         data = json.loads(r.read().decode("utf-8"))
+    elapsed = time.monotonic() - t0
     choice = data["choices"][0]
-    return choice["message"].get("content") or "", choice.get("finish_reason", "")
+    usage = data.get("usage") or {}
+    # 每次调用都落监控日志：吞吐（tokens）、耗时、上下文规模——排障与成本一目了然
+    print(f"[proofread] 用量: 输入={usage.get('prompt_tokens', '?')}tok "
+          f"输出={usage.get('completion_tokens', '?')}tok "
+          f"耗时={elapsed:.1f}s "
+          f"送检字符={len(user)} "
+          f"finish={choice.get('finish_reason', '?')}")
+    _langfuse_track(choice["message"].get("content") or "", usage, elapsed, len(user))
+    return choice["message"].get("content") or "", choice.get("finish_reason", ""), usage
+
+
+def _langfuse_track(output: str, usage: dict, elapsed: float, chars: int) -> None:
+    """上报本次校对到 Langfuse（可选能力：未配置/失败静默，不阻塞发布）。
+
+    langfuse 3.x OTLP API：root span 承载整次校对，usage_details 记真实 tokens。
+    """
+    try:
+        from app.config import get_settings
+        s = get_settings()
+        if not (s.langfuse_public_key and s.langfuse_secret_key):
+            return
+        from langfuse import Langfuse
+        from langfuse.types import TraceContext
+        lf = Langfuse(public_key=s.langfuse_public_key,
+                      secret_key=s.langfuse_secret_key,
+                      host=s.langfuse_host,
+                      blocked_instrumentation_scopes=["fastapi"])
+        span = lf.start_span(
+            name="note-proofread",
+            metadata={"checked_chars": chars, "elapsed_sec": round(elapsed, 1)},
+            trace_context=TraceContext(trace_id=lf.create_trace_id()),
+        )
+        span.update(
+            output=output[:2000],
+            model=s.llm_model,
+            usage_details={
+                "input": usage.get("prompt_tokens") or 0,
+                "output": usage.get("completion_tokens") or 0,
+            },
+        )
+        span.end()
+        lf.flush()   # 短生命周期调用，立即落盘防丢
+        lf.shutdown()
+    except Exception as e:
+        print(f"[proofread] Langfuse 上报失败（不影响业务）：{type(e).__name__}: {e}")
 
 
 @router.post("/proofread")
@@ -79,7 +127,7 @@ def proofread(
     if len(text.strip()) < 10:
         return {"issues": [], "summary": "内容太短，无需检查", "checked_chars": len(text.strip())}
     try:
-        raw, finish = _chat(PROOF_SYSTEM, text)
+        raw, finish, _usage = _chat(PROOF_SYSTEM, text)
     except Exception as e:   # 网络失败/格式异常统一 502，前端据此降级
         print(f"[proofread] 模型调用失败：{type(e).__name__}: {e}")
         raise HTTPException(502, f"AI 服务不可用：{e}")
