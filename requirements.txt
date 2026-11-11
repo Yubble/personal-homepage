@@ -3,4 +3,4 @@ uvicorn[standard]>=0.30,<1
 pydantic>=2.7,<3
 pydantic-settings>=2.3,<3
 python-multipart>=0.0.9
-langfuse
+langfuse==5.2.0

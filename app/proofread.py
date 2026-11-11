@@ -82,7 +82,9 @@ def _chat(system: str, user: str) -> tuple[str, str, dict]:
 def _langfuse_track(output: str, usage: dict, elapsed: float, chars: int) -> None:
     """上报本次校对到 Langfuse（可选能力：未配置/失败静默，不阻塞发布）。
 
-    langfuse 3.x OTLP API：root span 承载整次校对，usage_details 记真实 tokens。
+    langfuse 5.x（v4 数据模型，2026-11-16 起 Cloud 仅支持 v4）：
+    root span 承载整次校对，usage_details 记真实 tokens；
+    metadata 值必须是 str；fastapi 噪音用 should_export_span 过滤。
     """
     try:
         from app.config import get_settings
@@ -90,14 +92,25 @@ def _langfuse_track(output: str, usage: dict, elapsed: float, chars: int) -> Non
         if not (s.langfuse_public_key and s.langfuse_secret_key):
             return
         from langfuse import Langfuse
+        from langfuse.span_filter import is_default_export_span
         from langfuse.types import TraceContext
+
+        def _filter(span) -> bool:
+            try:
+                if not is_default_export_span(span):
+                    return False
+                scope = getattr(span, "instrumentation_scope", None)
+                return scope is None or scope.name != "fastapi"
+            except Exception:
+                return True
+
         lf = Langfuse(public_key=s.langfuse_public_key,
                       secret_key=s.langfuse_secret_key,
                       host=s.langfuse_host,
-                      blocked_instrumentation_scopes=["fastapi"])
-        span = lf.start_span(
+                      should_export_span=_filter)
+        span = lf.start_observation(
             name="note-proofread",
-            metadata={"checked_chars": chars, "elapsed_sec": round(elapsed, 1)},
+            metadata={"checked_chars": str(chars), "elapsed_sec": str(round(elapsed, 1))},
             trace_context=TraceContext(trace_id=lf.create_trace_id()),
         )
         span.update(
