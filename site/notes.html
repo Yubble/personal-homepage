@@ -515,8 +515,9 @@ async function edRetryPublish() {
     const p = edPending; edPending = null;
     $('edAuthBtn').textContent = '验证并发布';
     if (p.type === 'delete') await doDeleteNote(p.file);
-    else if (p.type === 'proofread') await aiCheckThenPublish(p.filename, p.content);
-    else await doPublish(p.filename, p.content);
+    else await aiCheckThenPublish(p.filename, p.content);  // 发布/校对统一走"校对→发布"：
+    // 不能因口令验证的时机不同而跳过 AI 校对（2026-11-14 本地实测：首次输口令
+    // 发布会绕过校对直接 doPublish，校对环节整个消失）
   }
 }
 

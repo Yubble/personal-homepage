@@ -23,7 +23,14 @@ services:
       - "127.0.0.1:8001:8000"   # 只对本机回环暴露（宿主调试用），公网流量走 nginx 内网直连
     volumes:
       - .:/app                  # 整仓库挂载：笔记落盘 + git 提交都在宿主机仓库里
-      - /root/.ssh/github_yubble_notes:/root/.ssh/github_yubble_notes:ro   # 部署密钥只读挂入（仅服务器存在此文件，本地挂载缺文件时 Docker 会自动建空目录）
+      # 部署密钥只读挂入（路径可用 .env 的 NOTES_SSH_KEY_HOST 覆盖）：
+      #   服务器：默认 /root/.ssh/github_yubble_notes（原生部署密钥，600）
+      #   本地 Mac：.env 设 NOTES_SSH_KEY_HOST=${HOME}/.ssh/github_rsa——
+      #   本地 VM 无部署密钥，缺文件时 Docker 自动建空目录，ssh 把目录当
+      #   私钥检查直接报 UNPROTECTED PRIVATE KEY FILE（2026-11-14 实测）；
+      #   OrbStack 对 Mac 文件的权限透传良好（600 进容器仍是 600，实测）。
+      #   remote 已统一走 ssh.github.com:443（Mac 的 22 端口被代理掐）。
+      - ${NOTES_SSH_KEY_HOST:-/root/.ssh/github_yubble_notes}:/root/.ssh/github_yubble_notes:ro
     networks:
       - default
       - agent-nginx             # 挂进 Agent 的 compose 网络：snack-nginx 用容器名直连，无需暴露端口
