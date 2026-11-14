@@ -37,8 +37,13 @@
         <div class="cap">它做什么</div>
         <p>24 小时在线的门店智能客服：查商品价格、算多件优惠与满减、答会员权益、比单价；问路时直接在聊天里出可交互的高德地图（官方渲染路线、一键导航）；无关闲聊自动拦截不烧 token；答不上来自动转人工并登记留言。配套管理台支持知识库上传审批、促销维护、留言处理与操作审计，商家可在线更换大模型与 Key、保存即热切换。</p>
         <div class="cap">怎么实现</div>
-        <p>LlamaIndex ReAct Agent 编排 17 个工具（含高德 MCP 实时路线与地理编码）；bge 向量 + BM25 双路召回、RRF 融合保证检索精度；入口分类守卫把无关请求挡在 Agent 之前；Langfuse 全链路追踪对话与 token 开销；FastAPI + SQLite + Docker + Nginx 云上部署。</p>
-        <a class="go" href="/agent/">进入体验 →</a>
+        <p>LlamaIndex ReAct Agent 编排 17 个工具（含高德 MCP 实时路线与地理编码）；bge 向量 + BM25 双路召回、RRF 融合保证检索精度；入口分类守卫把无关请求挡在 Agent 之前；Phoenix 看板监控 Agent 全链路（每步工具调用、检索命中、耗时与 token），Langfuse 追踪发布链路的 AI 校对；FastAPI + SQLite + Docker + Nginx 云上部署。</p>
+        <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:4px">
+          <a class="go" href="/agent/">进入体验 →</a>
+          <a class="go" href="/agent/admin">管理后台 →</a>
+          <a class="go" href="/phoenix/" target="_blank">Agent 链路监控 →</a>
+          <a class="go" href="https://us.cloud.langfuse.com" target="_blank">校对追踪（Langfuse）→</a>
+        </div>
       </div>
 
       <div class="work">
