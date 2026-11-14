@@ -33,6 +33,7 @@ PROOF_SYSTEM = """你是中文博客文章的校对编辑。检查文章并只�
 1. 错别字/用词错误（上下文能确认的，如"在提交"应为"再提交"）
 2. 英文拼写错误（技术名词以官方拼写为准，如 LangChain、LangGraph、ChatGPT、RAG）
 3. 大小写不一致（同一名词在文中出现两种写法，如 langChain 与 LangChain 混用）
+4. 用词不当：口语化/搭配错误/成语误写（如"在跑"应书作"正在运行"、"应付裕如"应为"应付自如"）——type 标"用词"，不要标"错别字"
 不要报：中英文之间的空格、风格偏好、标点全半角、纯语法建议。
 拿不准的问题不要报，宁缺毋滥。
 
@@ -42,7 +43,7 @@ PROOF_SYSTEM = """你是中文博客文章的校对编辑。检查文章并只�
 - reason ≤20 字，一句话说清依据
 - summary ≤40 字
 严格输出 JSON（不要多余文字）：
-{"issues": [{"type": "错别字|拼写|大小写", "original": "词组", "suggest": "建议改为", "reason": "简短理由"}], "summary": "一句话总评"}"""
+{"issues": [{"type": "错别字|拼写|大小写|用词", "original": "词组", "suggest": "建议改为", "reason": "简短理由"}], "summary": "一句话总评"}"""
 
 
 def _chat(system: str, user: str, max_tokens: int = MAX_OUTPUT_TOKENS) -> tuple[str, str, dict]:

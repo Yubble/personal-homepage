@@ -680,9 +680,11 @@ function showProof(d, filename, content) {
     (nofix ? `（${nofix} 处经复核无需修改，已略去）` : '') + '。' + (d.summary || '');
   $('proofList').innerHTML = real.length ? real.map((i, idx) => `
     <div class="proof-item">
-      <span class="proof-tag">${esc(i.type || '问题')}</span>
-      <span class="proof-fix">${esc(i.original || '')} → ${esc(i.suggest || '')}</span>
-      <button class="proof-apply" onclick="applyProofFix(this, ${idx})">改为</button>
+      <div class="proof-head">
+        <span class="proof-tag">${esc(i.type || '问题')}</span>
+        <span class="proof-fix">${esc(i.original || '')} → ${esc(i.suggest || '')}</span>
+        <button class="proof-apply" onclick="applyProofFix(this, ${idx})">改正</button>
+      </div>
       ${i.reason ? `<div class="proof-reason">${esc(i.reason)}</div>` : ''}
     </div>`).join('')
     : '<div class="proof-reason">逐条复核后都无需修改，可直接发布。</div>';
@@ -702,7 +704,7 @@ function applyProofFix(btn, idx) {
     return;
   }
   edSetValue(cur.slice(0, pos) + issue.suggest + cur.slice(pos + issue.original.length));
-  btn.textContent = '已修正 ✓'; btn.disabled = true;
+  btn.textContent = '已改正 ✓'; btn.disabled = true;
 }
 
 function closeProof(edit) {
