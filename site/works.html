@@ -35,9 +35,9 @@
           <span class="badge live">公网运行中</span>
         </div>
         <div class="cap">它做什么</div>
-        <p>24 小时在线的门店智能客服：查商品价格、算多件优惠与满减、答会员权益、比单价；答不上来自动转人工并登记留言。配套管理台支持知识库上传审批、促销维护、留言处理与操作审计。</p>
+        <p>24 小时在线的门店智能客服：查商品价格、算多件优惠与满减、答会员权益、比单价；问路时直接在聊天里出可交互的高德地图（官方渲染路线、一键导航）；无关闲聊自动拦截不烧 token；答不上来自动转人工并登记留言。配套管理台支持知识库上传审批、促销维护、留言处理与操作审计，商家可在线更换大模型与 Key、保存即热切换。</p>
         <div class="cap">怎么实现</div>
-        <p>LlamaIndex ReAct Agent 编排 9 个业务工具；bge 向量 + BM25 + RRF 三路混合检索保证召回精度；25 用例评测集守护回答质量；FastAPI + SQLite + Docker + Nginx 云上部署。</p>
+        <p>LlamaIndex ReAct Agent 编排 17 个工具（含高德 MCP 实时路线与地理编码）；bge 向量 + BM25 双路召回、RRF 融合保证检索精度；入口分类守卫把无关请求挡在 Agent 之前；Langfuse 全链路追踪对话与 token 开销；FastAPI + SQLite + Docker + Nginx 云上部署。</p>
         <a class="go" href="/agent/">进入体验 →</a>
       </div>
 
