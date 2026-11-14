@@ -98,8 +98,10 @@
     <div id="proofSummary" style="font-size:12.5px;color:#78716c;margin-bottom:12px"></div>
     <div id="proofList"></div>
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px">
-      <button onclick="closeProof(true)">回去修改</button>
-      <button class="primary" onclick="closeProof(false)">忽略，直接发布</button>
+      <button class="primary" id="proofPublishBtn" onclick="closeProof(false)">直接发布</button>
+    </div>
+    <div style="text-align:center;margin-top:10px;font-size:12px;color:#a8a29e">
+      想回文章手动改？点本浮层外的灰色区域即可关闭，内容不会丢失
     </div>
   </div>
 </div>
@@ -675,7 +677,9 @@ function showProof(d, filename, content) {
   // 过滤模型自认"无需修改"的条目（original 与 suggest 相同），列出来纯噪音
   const real = (d.issues || []).filter(i => (i.suggest || '').trim() && (i.original || '').trim() !== i.suggest.trim());
   const nofix = (d.issues || []).length - real.length;
-  edProofPending = { filename, content, issues: real };
+  edProofPending = { filename, content, issues: real, applied: 0 };
+  // 发布按钮文案跟随改正行为：没改过=无视建议直接发；改过=发布的就是修正后的内容
+  $('proofPublishBtn').textContent = real.length ? '忽略建议，直接发布' : '直接发布';
   $('proofSummary').textContent = `AI 共发现 ${d.issues.length} 处疑似问题` +
     (nofix ? `（${nofix} 处经复核无需修改，已略去）` : '') + '。' + (d.summary || '');
   $('proofList').innerHTML = real.length ? real.map((i, idx) => `
@@ -688,6 +692,8 @@ function showProof(d, filename, content) {
       ${i.reason ? `<div class="proof-reason">${esc(i.reason)}</div>` : ''}
     </div>`).join('')
     : '<div class="proof-reason">逐条复核后都无需修改，可直接发布。</div>';
+  // 点遮罩空白处关闭浮层（替代删掉的"回去修改"按钮）：内容在编辑器里，不丢
+  $('proofModal').onclick = function (e) { if (e.target === this) closeProof(true); };
   $('proofModal').style.display = '';
 }
 
@@ -705,6 +711,11 @@ function applyProofFix(btn, idx) {
   }
   edSetValue(cur.slice(0, pos) + issue.suggest + cur.slice(pos + issue.original.length));
   btn.textContent = '已改正 ✓'; btn.disabled = true;
+  // 每改正一处，发布按钮的语义就变一次：不再是"忽略"，而是发布修正后的内容
+  if (edProofPending) {
+    edProofPending.applied++;
+    $('proofPublishBtn').textContent = `发布（已改正 ${edProofPending.applied} 处）`;
+  }
 }
 
 function closeProof(edit) {
