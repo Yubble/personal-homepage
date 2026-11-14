@@ -34,11 +34,18 @@ PROOF_SYSTEM = """你是中文博客文章的校对编辑。检查文章并只�
 2. 英文拼写错误（技术名词以官方拼写为准，如 LangChain、LangGraph、ChatGPT、RAG）
 3. 大小写不一致（同一名词在文中出现两种写法，如 langChain 与 LangChain 混用）
 不要报：中英文之间的空格、风格偏好、标点全半角、纯语法建议。
-拿不准的问题不要报，宁缺毋滥。严格输出 JSON（不要多余文字）：
-{"issues": [{"type": "错别字|拼写|大小写", "original": "原文片段", "suggest": "建议改为", "reason": "简短理由"}], "summary": "一句话总评"}"""
+拿不准的问题不要报，宁缺毋滥。
+
+输出规模硬约束（超长会导致 JSON 被截断、整次校对报废，务必遵守）：
+- 最多报告 8 处问题：超过 8 处时只挑最有把握的，宁少勿多
+- original 只写问题所在的词组（≤15 字），严禁复制整句或整段原文
+- reason ≤20 字，一句话说清依据
+- summary ≤40 字
+严格输出 JSON（不要多余文字）：
+{"issues": [{"type": "错别字|拼写|大小写", "original": "词组", "suggest": "建议改为", "reason": "简短理由"}], "summary": "一句话总评"}"""
 
 
-def _chat(system: str, user: str) -> tuple[str, str, dict]:
+def _chat(system: str, user: str, max_tokens: int = MAX_OUTPUT_TOKENS) -> tuple[str, str, dict]:
     """调用校对模型，返回 (内容, finish_reason, usage)。失败路径要靠 finish_reason 定位截断。"""
     import time
 
@@ -52,8 +59,13 @@ def _chat(system: str, user: str) -> tuple[str, str, dict]:
             {"role": "user", "content": user},
         ],
         "temperature": 0.1,
-        "max_tokens": MAX_OUTPUT_TOKENS,
+        "max_tokens": max_tokens,
         "response_format": {"type": "json_object"},
+        # 校对是确定性文本任务，思考链纯浪费。2026-11-14 实测：1500 字送检，
+        # 基线模型思考 3092 字、正文 0 字被 length 截断（推理模型对长输入会
+        # 失控长考）；reasoning_effort=none 后正文 1255 字、思考 0、正常收尾。
+        # 该参数本网关实测有效；其他网关不认识时报 400 → 走批次降级。
+        "reasoning_effort": "none",
     }).encode("utf-8")
     req = urllib.request.Request(
         s.llm_base_url.rstrip("/") + "/chat/completions",
@@ -134,29 +146,73 @@ def proofread(
     x_notes_token: str | None = Header(default=None),
     x_admin_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    """校对笔记内容，返回问题清单。失败不拦发布——前端降级直发。"""
+    """校对笔记内容，返回问题清单。失败不拦发布——前端降级直发。
+
+    分批策略（2026-11-14）：长文一次送检会触发推理模型失控长考（思考链吃光
+    输出上限、正文 0 字被截断），改为按段落边界切 ~2000 字/批并发校对——
+    每批输入短思考短、输出小不截断，总耗时 ≈ 最慢一批（并发 4 路）。
+    单批失败只丢该批（结果标注可能不全），不拖垮整次校对。
+    """
     _require_notes_token(x_notes_token or x_admin_token)
     text = body.content[:MAX_PROOFREAD_CHARS]
     if len(text.strip()) < 10:
         return {"issues": [], "summary": "内容太短，无需检查", "checked_chars": len(text.strip())}
-    try:
-        raw, finish, _usage = _chat(PROOF_SYSTEM, text)
-    except Exception as e:   # 网络失败/格式异常统一 502，前端据此降级
-        print(f"[proofread] 模型调用失败：{type(e).__name__}: {e}")
-        raise HTTPException(502, f"AI 服务不可用：{e}")
-    m = re.search(r"\{[\s\S]*\}", raw)
-    try:
-        data = json.loads(m.group(0) if m else raw)
-        issues = data.get("issues", [])
-    except (json.JSONDecodeError, AttributeError):
-        # 失败细节必须落日志（docker logs 可查），否则只有前端一句"格式异常"没法排障
-        print(f"[proofread] JSON 解析失败：finish_reason={finish}，"
-              f"内容长度={len(raw)}，开头={raw[:150]!r}")
-        if finish == "length":
-            raise HTTPException(502, "AI 输出超长被截断（请稍后重试）")
-        raise HTTPException(502, f"AI 返回格式异常（finish_reason={finish}）")
+
+    batches = _split_batches(text)
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(4, len(batches))) as ex:
+        results = list(ex.map(_check_batch, batches))
+
+    ok = [r for r in results if r is not None]
+    if not ok:
+        raise HTTPException(502, f"全部 {len(batches)} 批校对失败，请稍后重试")
+    skipped = len(batches) - len(ok)
+
+    issues = [i for r in ok for i in r[0]][:20]
+    summaries = [r[1] for r in ok if r[1]]
+    summary = "；".join(summaries)[:120]
+    if skipped:
+        summary = f"（{skipped}/{len(batches)} 批未能检查，结果可能不全）{summary}"
     return {
-        "issues": issues[:20],
-        "summary": data.get("summary", ""),
+        "issues": issues,
+        "summary": summary,
         "checked_chars": len(text),
     }
+
+
+BATCH_SIZE = 2000          # 每批送检字符数：输入短→思考短→输出不截断
+BATCH_MAX_TOKENS = 2000    # 单批输出限额（禁思考后 2000 对 8 条约束绰绰有余）
+
+
+def _split_batches(text: str, size: int = BATCH_SIZE) -> list[str]:
+    """按行边界切批：凑满即切，单行超长再硬切兜底。"""
+    batches: list[str] = []
+    buf = ""
+    for p in text.split("\n"):
+        while len(p) > size:                      # 单行超长：硬切保底
+            batches.append((buf + "\n" if buf else "") + p[:size])
+            buf = ""
+            p = p[size:]
+        if len(buf) + len(p) + 1 <= size:
+            buf += ("\n" if buf else "") + p
+        else:
+            if buf:
+                batches.append(buf)
+            buf = p
+    if buf:
+        batches.append(buf)
+    return batches or [text]
+
+
+def _check_batch(text: str) -> tuple[list, str] | None:
+    """单批校对：返回 (issues, summary)；该批失败返回 None（降级跳过不拖垮整次）。"""
+    try:
+        raw, finish, _usage = _chat(PROOF_SYSTEM, text, max_tokens=BATCH_MAX_TOKENS)
+        m = re.search(r"\{[\s\S]*\}", raw)
+        data = json.loads(m.group(0) if m else raw)
+        return data.get("issues", []), data.get("summary", "")
+    except Exception as e:
+        # 失败细节必须落日志，否则只有前端一句"批次失败"没法排障
+        print(f"[proofread] 批次失败已跳过（{len(text)} 字）：{type(e).__name__}: {e}")
+        return None

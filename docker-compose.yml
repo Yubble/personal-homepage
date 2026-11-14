@@ -17,6 +17,9 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      # python print 默认块缓冲：audit/proofread 日志憋在缓冲区，docker logs
+      # 看不到实时输出，排障时被迫 restart 刷日志（2026-11-14 实测踩坑）
+      PYTHONUNBUFFERED: "1"
       # 容器内 git push（NOTES_GIT_PUSH=true 时）走宿主机生成的 GitHub 部署密钥
       GIT_SSH_COMMAND: ssh -i /root/.ssh/github_yubble_notes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new
     ports:
