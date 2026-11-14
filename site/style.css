@@ -286,6 +286,10 @@ footer a:hover { color: #ea580c; }
 /* AI 校对报告浮层 */
 .proof-item { border: 1px solid #f0e4cf; background: #fdf9f2; border-radius: 8px; padding: 10px 14px; margin: 8px 0; font-size: 13.5px; }
 .proof-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; background: #fee2e2; color: #b91c1c; font-size: 12px; margin-right: 8px; }
+/* 一键修正：把该问题的原文替换为建议——不用回文章手动找 */
+.proof-apply { float: right; padding: 3px 12px; border: 1px solid #e0d6c4; background: #fff; border-radius: 6px; font-size: 12.5px; cursor: pointer; color: #b91c1c; }
+.proof-apply:hover:not(:disabled) { background: #fef2f2; border-color: #b91c1c; }
+.proof-apply:disabled { color: #16a34a; border-color: #bbf7d0; cursor: default; }
 .proof-fix { font-weight: 600; color: #1c1917; }
 .proof-reason { margin-top: 4px; font-size: 12.5px; color: #78716c; }
 #proofModal button { padding: 8px 16px; border: 1px solid #e0d6c4; background: #fff; border-radius: 6px; font-size: 13.5px; cursor: pointer; }

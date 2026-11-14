@@ -672,21 +672,44 @@ async function aiCheckThenPublish(filename, content) {
 }
 
 function showProof(d, filename, content) {
-  edProofPending = { filename, content };
-  $('proofSummary').textContent = 'AI 共发现 ' + d.issues.length + ' 处疑似问题。' + (d.summary || '');
-  $('proofList').innerHTML = d.issues.map(i => `
+  // 过滤模型自认"无需修改"的条目（original 与 suggest 相同），列出来纯噪音
+  const real = (d.issues || []).filter(i => (i.suggest || '').trim() && (i.original || '').trim() !== i.suggest.trim());
+  const nofix = (d.issues || []).length - real.length;
+  edProofPending = { filename, content, issues: real };
+  $('proofSummary').textContent = `AI 共发现 ${d.issues.length} 处疑似问题` +
+    (nofix ? `（${nofix} 处经复核无需修改，已略去）` : '') + '。' + (d.summary || '');
+  $('proofList').innerHTML = real.length ? real.map((i, idx) => `
     <div class="proof-item">
       <span class="proof-tag">${esc(i.type || '问题')}</span>
       <span class="proof-fix">${esc(i.original || '')} → ${esc(i.suggest || '')}</span>
+      <button class="proof-apply" onclick="applyProofFix(this, ${idx})">改为</button>
       ${i.reason ? `<div class="proof-reason">${esc(i.reason)}</div>` : ''}
-    </div>`).join('');
+    </div>`).join('')
+    : '<div class="proof-reason">逐条复核后都无需修改，可直接发布。</div>';
   $('proofModal').style.display = '';
+}
+
+/* 一键修正：在编辑器里把该问题的第一处原文替换为建议。
+   同词多处会报多条——点一次替换一处，下一个按钮自然命中下一处。
+   改完不关浮层，可继续逐条处理，或"回去修改"手动微调 */
+function applyProofFix(btn, idx) {
+  const issue = edProofPending && edProofPending.issues[idx];
+  if (!issue) return;
+  const cur = edGetValue();
+  const pos = cur.indexOf(issue.original);
+  if (pos < 0) {   // 找不到 = 这处已被其他按钮或手动改掉
+    btn.textContent = '已处理'; btn.disabled = true;
+    return;
+  }
+  edSetValue(cur.slice(0, pos) + issue.suggest + cur.slice(pos + issue.original.length));
+  btn.textContent = '已修正 ✓'; btn.disabled = true;
 }
 
 function closeProof(edit) {
   const p = edProofPending; edProofPending = null;
   $('proofModal').style.display = 'none';
-  if (!edit && p) doPublish(p.filename, p.content);
+  // 必须实时取编辑器内容：一键修正后 p.content（校对快照）已过期
+  if (!edit && p) doPublish(p.filename, edGetValue());
 }
 
 /* ==================== 启动 ==================== */
