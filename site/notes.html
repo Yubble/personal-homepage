@@ -207,7 +207,7 @@ async function showNote(file) {
   const box = $('noteBody');
   box.innerHTML = '<div class="note-loading">加载中…</div>';
   try {
-    const md = await (await fetch(NOTES_DIR + file)).text();
+    const md = await (await fetch(NOTES_DIR + file, { cache: 'no-store' })).text();
     if (typeof marked === 'undefined') throw new Error('Markdown 渲染库加载失败（检查网络/CDN）');
     box.innerHTML = fixRelativeUrls(DOMPurify.sanitize(marked.parse(md, { breaks: true })));
     panguNode(box);   // 盘古之白：渲染层统一补中英间隔（旧文章也受益）
