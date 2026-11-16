@@ -33,9 +33,13 @@ PROOF_SYSTEM = """你是中文博客文章的校对编辑。检查文章并只�
 1. 错别字/用词错误（上下文能确认的，如"在提交"应为"再提交"）
 2. 英文拼写错误（技术名词以官方拼写为准，如 LangChain、LangGraph、ChatGPT、RAG）
 3. 大小写不一致（同一名词在文中出现两种写法，如 langChain 与 LangChain 混用）
-4. 用词不当：口语化/搭配错误/成语误写（如"在跑"应书作"正在运行"、"应付裕如"应为"应付自如"）——type 标"用词"，不要标"错别字"
+4. 用词不当：口语化/搭配错误（如"在跑"应书作"正在运行"、"登陆网站"应为"登录网站"）——type 标"用词"，不要标"错别字"
 不要报：中英文之间的空格、风格偏好、标点全半角、纯语法建议。
 拿不准的问题不要报，宁缺毋滥。
+
+⚠️ 关于上面的示例：它们只是判断口径的说明，不是任何文章的真实内容。
+严禁把示例中的词组当作检查结果输出——你报告的每一条 original
+必须逐字出现在送检文本中，找不到原文的问题一条都不许报。
 
 输出规模硬约束（超长会导致 JSON 被截断、整次校对报废，务必遵守）：
 - 最多报告 8 处问题：超过 8 处时只挑最有把握的，宁少勿多
@@ -212,7 +216,26 @@ def _check_batch(text: str) -> tuple[list, str] | None:
         raw, finish, _usage = _chat(PROOF_SYSTEM, text, max_tokens=BATCH_MAX_TOKENS)
         m = re.search(r"\{[\s\S]*\}", raw)
         data = json.loads(m.group(0) if m else raw)
-        return data.get("issues", []), data.get("summary", "")
+        issues = data.get("issues", [])
+        # 代码级防线：original 不在本批原文中的建议直接丢弃。
+        # 2026-11-16 实测案例：提示词示例"应付裕如→应付自如"被模型当作
+        # 检查结果原样回吐，而用户文章里根本没有这个词——提示词约束
+        # （"只报有把握的"）挡不住这种漂移，代码硬校验挡得住：验收
+        # 标准就是"original 逐字存在于送检文本"，杜撰的原文明不过关。
+        clean = [i for i in issues
+                 if isinstance(i, dict)
+                 and (i.get("original") or "").strip()
+                 and i["original"].strip() in text
+                 and (i.get("suggest") or "").strip()
+                 and (i.get("suggest") or "").strip() != i["original"].strip()]
+        dropped = len(issues) - len(clean)
+        if dropped:
+            bad = [((i.get("original") or "?")[:20]) for i in issues
+                   if not (isinstance(i, dict)
+                           and (i.get("original") or "").strip()
+                           and i["original"].strip() in text)]
+            print(f"[proofread] 丢弃 {dropped} 条 original 不在原文中的疑似幻觉建议：{bad}")
+        return clean, data.get("summary", "")
     except Exception as e:
         # 失败细节必须落日志，否则只有前端一句"批次失败"没法排障
         print(f"[proofread] 批次失败已跳过（{len(text)} 字）：{type(e).__name__}: {e}")
