@@ -230,11 +230,18 @@ def _check_batch(text: str) -> tuple[list, str] | None:
                  and (i.get("suggest") or "").strip() != i["original"].strip()]
         dropped = len(issues) - len(clean)
         if dropped:
-            bad = [((i.get("original") or "?")[:20]) for i in issues
+            bad = [repr((i.get("original") or "?")[:20]) for i in issues
                    if not (isinstance(i, dict)
                            and (i.get("original") or "").strip()
                            and i["original"].strip() in text)]
             print(f"[proofread] 丢弃 {dropped} 条 original 不在原文中的疑似幻觉建议：{bad}")
+        if clean:
+            # 诊断：放行条目的 original 用 repr 打印——肉眼不可见的零宽字符
+            # （\u200b 等）在这里会现形。2026-11-16 案例：用户编辑器 Ctrl+F
+            # 搜不到"应付裕如"，但校对照常报告且防线放行——唯一解释是
+            # 送检文本里的"应付裕如"夹了不可见字符，搜索串与实际字节不符。
+            print(f"[proofread] 放行建议 original repr: {[repr(i['original'][:20]) for i in clean]}")
+            print(f"[proofread] 送检文本中'应付'上下文 repr: {[repr(text[m.start():m.end()+8]) for m in re.finditer('应[\\s\\S]{0,4}付[\\s\\S]{0,4}裕', text)][:3]}")
         return clean, data.get("summary", "")
     except Exception as e:
         # 失败细节必须落日志，否则只有前端一句"批次失败"没法排障
