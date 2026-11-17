@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 专属 favicon：/favicon.ico 被 nginx 的 Phoenix 路由（口令门卫）占用，
+     主页必须显式声明 SVG 路径，否则浏览器默认请求 /favicon.ico 会拿到 302 → 标签页无图标 -->
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>Yubble · 关于</title>
 <link rel="stylesheet" href="style.css?v=12">
 </head>
