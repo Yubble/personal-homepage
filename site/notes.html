@@ -367,8 +367,21 @@ async function showEditor(file) {
     $('edHead').textContent = '编辑笔记：' + file;
     try {
       const d = await edApi('/api/admin/notes/source/' + encodeURIComponent(file));
-      edSetValue(d.content);
-      edLastSaved = d.content;      // 原文不算"新改动"，避免刚打开就存一条副本
+      // 草稿自动恢复：同文件存在内容不同的本地草稿时优先载入草稿。
+      // 2026-11-17 案例：校对报告里点"改正"只改编辑器内存，15 秒后才落
+      // localStorage 草稿；重进编辑器却从服务器文件加载 → 改正"丢失"，
+      // 用户反复看到已修正的老问题。自动接管草稿续写，改正不再丢。
+      const draft = edDrafts().find(x => x.filename === file);
+      if (draft && draft.content && draft.content !== d.content) {
+        edSetValue(draft.content);
+        edDraftId = draft.id;         // 接管这条草稿：自动保存原地更新它
+        edLastSaved = draft.content;
+        setAutoLabel('已恢复本地草稿（存于 ' + draft.saved_at + '）');
+        toast('检测到未发布的本地草稿（' + draft.saved_at + ' 保存），已自动恢复；要回到已发布版本请用草稿箱外的内容自行比对', 'ok', 6000);
+      } else {
+        edSetValue(d.content);
+        edLastSaved = d.content;      // 原文不算"新改动"，避免刚打开就存一条副本
+      }
       edSyncFile();
     } catch (e) { toast('读取笔记失败：' + e.message, 'err'); }
   } else {
