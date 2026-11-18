@@ -140,6 +140,38 @@ def _git(args: list[str], cwd: Path = ROOT_DIR) -> subprocess.CompletedProcess[s
     )
 
 
+def _heal_manifest_rebase_conflict() -> bool:
+    """rebase 停在 index.json 冲突时自动合并两端条目并标记解决。
+
+    合并规则：两 stage 条目按 file 字段去重取并集、date 降序（新笔记在前，
+    与清单既有顺序一致）。只在"唯一冲突文件就是清单"时自动处理——
+    出现任何其他冲突文件说明是实质内容分叉，不敢替人做主，返回 False
+    保留原报错。2026-11-17 案例：服务器与 GitHub 双头各推了笔记提交，
+    pull --rebase 停在清单冲突，push 报 non-fast-forward 给到前端。
+    """
+    if not ((ROOT_DIR / ".git/rebase-merge").exists() or (ROOT_DIR / ".git/rebase-apply").exists()):
+        return False   # 不在 rebase 冲突状态，无自愈对象
+    unstaged = _git(["diff", "--name-only", "--diff-filter=U"]).stdout.split()
+    if unstaged != ["site/notes/index.json"]:
+        return False   # 有其他冲突文件（或不是清单），不自动处理
+    def _stage(n: int) -> list:
+        raw = _git(["show", f":{n}:site/notes/index.json"]).stdout
+        try:
+            data = json.loads(raw)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+    ours, theirs = _stage(2), _stage(3)
+    seen = {i.get("file") for i in ours if isinstance(i, dict)}
+    merged = ours + [i for i in theirs if isinstance(i, dict) and i.get("file") not in seen]
+    merged.sort(key=lambda x: str(x.get("date", "")), reverse=True)
+    (ROOT_DIR / "site/notes/index.json").write_text(
+        json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    _git(["add", "--", "site/notes/index.json"])
+    return True
+
+
 def _git_commit(notes_rel: str, title: str, action: str) -> dict[str, Any]:
     """git add 整个 notes 目录（含 img 里待提交的插图）+ commit。"""
     add = _git(["add", "--", notes_rel])
@@ -208,11 +240,21 @@ def publish_note(
     pushed, push_msg = False, ""
     if get_settings().notes_git_push:
         # 推送前先同步远端：GitHub 可能被本地发布或其他机器推进过——
-        # 不先 pull 必然 non-fast-forward 被拒（多端写作的真实场景）
-        pre = _git(["pull", "--rebase", "--autostash", "origin", "main"])
+        # 不先 pull 必然 non-fast-forward 被拒（多端写作的真实场景）。
+        # 2026-11-17 实测：pull --rebase 会在 index.json 上冲突（两端都往
+        # 清单顶部插条目），pull 停在冲突状态后 push 照旧被拒，报错透传给
+        # 用户——所以自愈还必须能自动合并清单：两 stage 条目按 file 去重、
+        # 日期降序，continue 后再推（最多 3 轮，防连续多提交都冲突）。
+        _git(["pull", "--rebase", "--autostash", "origin", "main"])
         push = _git(["push", "origin", "HEAD"])
         pushed = push.returncode == 0
-        push_msg = "" if pushed else (push.stderr.strip()[:160] or pre.stderr.strip()[:160])
+        for _ in range(3):
+            if pushed or not _heal_manifest_rebase_conflict():
+                break
+            _git(["-c", "core.editor=true", "rebase", "--continue"])
+            push = _git(["push", "origin", "HEAD"])
+            pushed = push.returncode == 0
+        push_msg = "" if pushed else (push.stderr.strip()[:160])
 
     _audit(
         "notes.publish", body.filename,
