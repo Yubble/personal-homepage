@@ -322,10 +322,11 @@ function ensureEditor() {
       accept: 'image/png, image/jpeg, image/gif, image/webp',
       // 自定义 handler（2026-11-19）：Vditor 的 upload.headers 是初始化时
       // 求值一次的静态对象，edToken() 当时为空就永久带不上口令——换新域名
-      // /清缓存后必然 401「缺少笔记口令」，且错误 JSON 会被 Vditor 当成响应
-      // 插进正文（用户正文里出现 {"detail":"缺少笔记口令"}）。
-      // 改为每次上传动态读口令自己 fetch：无口令弹框（不触发发布），
-      // 失败只 toast 并返回 null，绝不把错误文本写进文章。
+      // /清缓存后必然 401「缺少笔记口令」。改为每次上传动态读口令自己 fetch。
+      // ⚠️ Vditor 的 handler 契约：返回的字符串会被**当作正文文本插入**，
+      // 不走 format/success（实测：原样返回后端 JSON，JSON 就进了编辑器）。
+      // 正确做法：自己解析 succMap → insertValue 插图片 markdown → 返回 null。
+      // 失败只 toast，绝不把错误文本写进文章。
       handler: async (files) => {
         if (!edToken()) {
           askToken('插图上传需要笔记口令——输一次浏览器就记住，然后重新拖入图片', { type: 'image' });
@@ -343,16 +344,25 @@ function ensureEditor() {
             try { msg = JSON.parse(txt).detail || txt; } catch (e) {}
             throw new Error(msg || ('HTTP ' + res.status));
           }
-          return txt;   // 后端已返回 Vditor 期望的 {code:0,data:{succMap}} 形状
+          const data = JSON.parse(txt);
+          if (data.code !== 0 || !data.data || !data.data.succMap) {
+            throw new Error(data.msg || '上传响应格式异常');
+          }
+          const md = Object.entries(data.data.succMap).map(([name, url]) => {
+            // alt 里的括号会干扰 markdown 链接解析；url 统一补前导斜杠，
+            // 无论编辑器页面 URL 多深都指向站点根 /notes/img/
+            const alt = String(name).replace(/[\[\]()]/g, '');
+            const src = '/' + String(url).replace(/^\/+/, '');
+            return `![${alt}](${src})`;
+          }).join('\n');
+          if (md && edVditor) edVditor.insertValue(md + '\n');
+          return null;   // 图片已自行插入，不能再返回文本让 Vditor 插一遍
         } catch (e) {
           toast('插图上传失败：' + e.message, 'err', 6500);
           return null;  // 不插入任何内容
         }
       },
-      format: (files, res) => {
-        try { if (JSON.parse(res).code === 0) return res; } catch (e) {}
-        return JSON.stringify({ msg: '上传失败', code: 1, data: { errFiles: [files && files[0] ? files[0].name : ''] } });
-      },
+      // handler 模式不走 Vditor 默认上传流程，format/success 无需定义
     },
     after: () => {
       edReady = true;
