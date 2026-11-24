@@ -21,7 +21,7 @@ RULES = [
     ("FDE实践", re.compile(r"FDE", re.I)),
     ("AI技术", re.compile(r"RAG|Agent|langChain|langGraph", re.I)),
 ]
-DEFAULT_CAT = "商业思考"
+DEFAULT_CAT = "FDE实践"   # 2026-11-24：商业思考目录已并入 FDE实践并移除，默认归 FDE实践
 
 
 def classify(title: str) -> str:
