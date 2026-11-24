@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-store">
 <title>Yubble · 学习笔记</title>
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 <!-- Markdown 渲染（详情/预览） + XSS 消毒 -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script>window.marked || document.write('<script src="https://unpkg.com/marked@12.0.2/marked.min.js"><\/script>')</script>
@@ -43,6 +43,7 @@
     <div style="display:flex;justify-content:flex-end;margin:-2px 0 6px">
       <a class="write-entry" href="#/new">＋ 写一篇</a>
     </div>
+    <div id="catBar" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 2px"></div>
     <section id="noteList">
       <div class="note-loading">正在从仓库拉取笔记清单…</div>
     </section>
@@ -70,6 +71,12 @@
       <div class="editor-meta">
         <label>日期 <span class="ed-file" id="edDateChip">—</span></label>
         <span class="ed-file" id="edFile">—</span>
+        <label>目录
+          <select id="edCategory" onchange="edCatChanged()"
+                  style="padding:7px 10px;border:1px solid #e0d6c4;border-radius:6px;font-size:13.5px;background:#fff;color:#1c1917">
+          </select>
+          <input id="edCategoryNew" placeholder="新目录名（如：FDE实践）" style="display:none;width:170px">
+        </label>
       </div>
       <div class="editor-bar">
         <button id="edPreviewBtn" onclick="togglePreview()">预览</button>
@@ -117,9 +124,16 @@
 
 <script>
 const NOTES_DIR = 'notes/';
-console.log('[notes] 页面版本 2026-11-09-r8（中英间距发布时自动整形，移除手动按钮）（盘古之白：中英间距整形 + 渲染层自动补白）');
+console.log('[notes] 页面版本 2026-11-24-r9（目录功能：主题目录筛选 + 编辑器选目录/新建目录 + 子目录文件布局）');
 const $ = id => document.getElementById(id);
 const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ── 相对路径工具（2026-11-24 目录功能）──
+   file 形状：'2026-...md'（未分类，历史行为）或 '目录名/2026-...md'。
+   中文目录名出现在 URL/接口路径里必须按段编码（斜杠保留），三处统一走这里 */
+const catOf = f => (String(f).indexOf('/') >= 0 ? String(f).slice(0, String(f).indexOf('/')) : '');
+const encPath = f => String(f).split('/').map(encodeURIComponent).join('/');
+const noteUrl = f => NOTES_DIR + encPath(f);
 
 /* toast 提示（与运营管理台同款交互） */
 function toast(text, kind = 'info', ms = 4200) {
@@ -131,10 +145,12 @@ function toast(text, kind = 'info', ms = 4200) {
   setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 320); }, ms);
 }
 
-/* 相对路径改写：md 文件在 /notes/ 下，里面的 img/xxx.png 应相对 md 解析，
-   但页面在根路径 —— 注入 DOM 前统一补上 notes/ 前缀 */
+/* 相对路径改写：页面在根路径，笔记里的相对资源统一补绝对前缀。
+   2026-11-24 目录化后 md 不再都在 notes/ 根下——旧笔记的 img/xxx 相对写法
+   升格为 /notes/img/xxx（插图集中存 notes/img/，与笔记所在目录无关）；
+   上传插图返回的 /notes/img/... 已是绝对路径，跳过 */
 function fixRelativeUrls(html) {
-  // img/xxx.png 补 notes/ 前缀；上传插图返回的 notes/img/... 已含前缀，跳过
+  html = html.replace(/(src|href)="img\//g, '$1="/notes/img/');
   return html.replace(/(src|href)="(?!https?:|\/\/|#|mailto:|\/|notes\/)([^"]+)"/g,
     (m, attr, url) => `${attr}="${NOTES_DIR}${url}"`);
 }
@@ -153,12 +169,17 @@ function parseMeta(file, md) {
   return { file, title, excerpt, date: date || '——' };
 }
 
-/* 列表：抓 notes/ 目录清单（nginx autoindex / python http.server 都给 HTML 列表），
-   解析出 .md 文件名，逐个取回解析标题与摘要 —— 无清单文件要维护 */
+/* 列表：抓 index.json 清单 → 缓存 metas → 目录筛选 chips + 按需渲染。
+   2026-11-24 目录功能：file 为相对路径（可含目录段），条目带 category
+   字段（老清单没有 → 按未分类处理，双向兼容）。
+   默认「全部」；点目录 chip 只看该主题；筛选纯前端内存态，刷新回全部 */
+let allMetas = [], curCat = '__ALL__';
+
 async function loadList() {
   const box = $('noteList');
   // 主通道：index.json 清单（发布时自动重建并随笔记提交，任何静态服务器可用）
-  // 备通道：目录浏览解析（nginx autoindex，兼容手工放 md 没清单的旧场景）
+  // 备通道：目录浏览解析（nginx autoindex，兼容手工放 md 没清单的旧场景——
+  // 只扫根目录，子目录笔记需靠清单；备通道仅兜底未分类）
   let items = null;
   try {
     const r = await fetch(NOTES_DIR + 'index.json', { cache: 'no-store' });
@@ -173,30 +194,67 @@ async function loadList() {
           .filter(f => !f.startsWith('_'))
           .filter((v, i, a) => a.indexOf(v) === i)
           .sort((a, b) => b.localeCompare(a))
-          .map(f => ({ file: f, title: null, date: (f.match(/^\d{4}-\d{2}-\d{2}/) || [''])[0] }));
+          .map(f => ({ file: f, title: null, date: (f.match(/^\d{4}-\d{2}-\d{2}/) || [''])[0], category: '' }));
       }
     } catch (e) {}
   }
   if (!items) {
     box.innerHTML = '<div class="note-loading">笔记清单拉取失败——既没有 index.json 也没有目录浏览权限</div>';
+    renderChips();
     return;
   }
   if (!items.length) {
     box.innerHTML = '<div class="note-loading">笔记目录还是空的——点右上角「写一篇」开张</div>';
+    renderChips();
     return;
   }
-  const metas = await Promise.all(items.map(async it => {
+  allMetas = await Promise.all(items.map(async it => {
     try {
-      const md = await (await fetch(NOTES_DIR + it.file)).text();
+      const md = await (await fetch(noteUrl(it.file))).text();
       const meta = parseMeta(it.file, md);
-      return { ...meta, title: it.title || meta.title, date: it.date || meta.date };
+      return { ...meta, category: it.category || catOf(it.file),
+               title: it.title || meta.title, date: it.date || meta.date };
     } catch (e) {
-      return { file: it.file, title: it.title || it.file, excerpt: '（读取失败）', date: it.date || '' };
+      return { file: it.file, title: it.title || it.file, excerpt: '（读取失败）',
+               date: it.date || '', category: it.category || catOf(it.file) };
     }
   }));
+  renderChips();
+  renderList();
+  // 直达 #/new 或 #/edit 时清单尚未就绪，目录下拉当时只有「未分类」——
+  // 清单到位后重填一次（保留用户已选的目录/新建输入态）
+  if ($('editorView').style.display !== 'none') {
+    edFillCats($('edCategory').value === '__NEW__' ? '__NEW__' : edResolvedCategory());
+  }
+}
+
+function renderChips() {
+  const bar = $('catBar');
+  if (!allMetas.length) { bar.innerHTML = ''; return; }
+  const cats = [...new Set(allMetas.map(m => m.category || '').filter(Boolean))];
+  const hasUncat = allMetas.some(m => !(m.category || ''));
+  const chip = (val, label) =>
+    `<button class="cat-chip${curCat === val ? ' on' : ''}" onclick="setCat('${esc(val)}')">${esc(label)}</button>`;
+  bar.innerHTML = chip('__ALL__', '全部') +
+    cats.map(c => chip(c, c)).join('') +
+    (hasUncat ? chip('__NONE__', '未分类') : '');
+}
+
+function setCat(v) { curCat = v; renderChips(); renderList(); }
+
+function renderList() {
+  const box = $('noteList');
+  const metas = allMetas.filter(m =>
+    curCat === '__ALL__' ||
+    (curCat === '__NONE__' && !(m.category || '')) ||
+    (m.category || '') === curCat);
+  if (!metas.length) {
+    box.innerHTML = '<div class="note-loading">这个目录下还没有笔记</div>';
+    return;
+  }
   box.innerHTML = metas.map(m => `
-    <a class="note" href="#/${esc(m.file)}">
-      <div class="date">${esc(m.date)}</div>
+    <a class="note" href="#/${encPath(m.file)}">
+      <div class="date">${esc(m.date)}${m.category ? `<span class="cat-badge">${esc(m.category)}</span>` : ''}</div>
       <h3>${esc(m.title)}</h3>
       <p>${esc(m.excerpt)}${m.excerpt.length >= 92 ? '…' : ''}</p>
     </a>`).join('');
@@ -207,7 +265,7 @@ async function showNote(file) {
   const box = $('noteBody');
   box.innerHTML = '<div class="note-loading">加载中…</div>';
   try {
-    const md = await (await fetch(NOTES_DIR + file, { cache: 'no-store' })).text();
+    const md = await (await fetch(noteUrl(file), { cache: 'no-store' })).text();
     if (typeof marked === 'undefined') throw new Error('Markdown 渲染库加载失败（检查网络/CDN）');
     box.innerHTML = fixRelativeUrls(DOMPurify.sanitize(marked.parse(md, { breaks: true })));
     panguNode(box);   // 盘古之白：渲染层统一补中英间隔（旧文章也受益）
@@ -231,7 +289,7 @@ function showDetail(file) {
   $('listView').style.display = 'none';
   $('editorView').style.display = 'none';
   $('detailView').style.display = '';
-  $('editEntry').href = '#/edit/' + file;
+  $('editEntry').href = '#/edit/' + encPath(file);
   edDetailFile = file;
   const delBtn = $('delEntry');
   delete delBtn.dataset.armed;          // 每次进入详情重置两段式确认
@@ -373,6 +431,30 @@ function ensureEditor() {
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
+/* ── 目录选择（2026-11-24）：下拉选已有目录 / 未分类，或现场新建 ──
+   目录列表从列表页缓存的 allMetas 聚合（发布后 loadList 会刷新）；
+   新建走「＋ 新建目录…」选项，显示输入框，发布时后端建目录+校验白名单 */
+function edFillCats(selected) {
+  const cats = [...new Set(allMetas.map(m => m.category || '').filter(Boolean))];
+  const sel = $('edCategory');
+  sel.innerHTML = `<option value="">未分类</option>` +
+    cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('') +
+    `<option value="__NEW__">＋ 新建目录…</option>`;
+  sel.value = (selected && cats.includes(selected)) ? selected : (selected ? '__NEW__' : '');
+  edCatChanged();
+}
+function edCatChanged() {
+  const isNew = $('edCategory').value === '__NEW__';
+  $('edCategoryNew').style.display = isNew ? '' : 'none';
+  if (isNew) $('edCategoryNew').focus();
+}
+function edResolvedCategory() {
+  // 发布时取真正要提交的目录名：新建输入框里的空格直接去掉（白名单不允许）
+  let c = $('edCategory').value;
+  if (c === '__NEW__') c = $('edCategoryNew').value.replace(/\s+/g, '').trim();
+  return c;
+}
+
 function edSyncFile() {
   // 日期不存 DOM：编辑取原文件名前缀，新作取当天——发布永远拿得到
   const d = edEditFile ? ((edEditFile.match(/^(\d{4}-\d{2}-\d{2})/) || [''])[0]) : todayStr();
@@ -392,6 +474,7 @@ async function showEditor(file) {
   $('edPreview').style.display = 'none';
   $('edPreviewBtn').textContent = '预览';
   edEditFile = file || null;
+  edFillCats(file ? catOf(file) : '');   // 编辑带入原文所在目录；新作默认未分类
   edSyncFile();
   ensureEditor();
   edSetValue('');
@@ -403,7 +486,7 @@ async function showEditor(file) {
   if (file) {
     $('edHead').textContent = '编辑笔记：' + file;
     try {
-      const d = await edApi('/api/admin/notes/source/' + encodeURIComponent(file));
+      const d = await edApi('/api/admin/notes/source/' + encPath(file));
       // 草稿自动恢复：同文件存在内容不同的本地草稿时优先载入草稿。
       // 2026-11-17 案例：校对报告里点"改正"只改编辑器内存，15 秒后才落
       // localStorage 草稿；重进编辑器却从服务器文件加载 → 改正"丢失"，
@@ -460,6 +543,7 @@ function saveSession() {
   const list = edDrafts();
   const entry = {
     id: edDraftId, filename: edEditFile || '', title: edTitle(content),
+    category: edResolvedCategory(),   // 草稿带上目录：续写时恢复目录选择
     content, saved_at: new Date().toLocaleString('zh-CN', { hour12: false }),
   };
   const i = list.findIndex(x => x.id === edDraftId);
@@ -504,6 +588,7 @@ function resumeDraft(id) {
   edDraftId = id;            // 接管这条草稿：之后自动保存原地更新它
   edLastSaved = d.content;
   edSetValue(d.content);
+  edFillCats(d.category || catOf(d.filename || ''));   // 恢复草稿的目录选择
   edSyncFile();
   if (edPreviewOn) togglePreview();
   setAutoLabel('已续写，自动保存已接上');
@@ -545,8 +630,8 @@ async function publishNote() {
   clearTimeout(edConfirmTimer);
   delete btn.dataset.armed;
   btn.textContent = '提交发布';
-  if (!edToken()) return askToken('发布需要笔记口令——输一次，浏览器就记住', { type: 'publish', filename, content });
-  await aiCheckThenPublish(filename, content);
+  if (!edToken()) return askToken('发布需要笔记口令——输一次，浏览器就记住', { type: 'publish', filename, content, category: edResolvedCategory() });
+  await aiCheckThenPublish(filename, content, edResolvedCategory());
 }
 
 function askToken(msg, pending) {
@@ -573,7 +658,7 @@ async function edRetryPublish() {
       // 用户重新拖一次图片即可（handler 会动态读到新口令）
       toast('笔记口令已保存，重新拖入图片即可上传', 'ok');
     }
-    else await aiCheckThenPublish(p.filename, p.content);  // 发布/校对统一走"校对→发布"：
+    else await aiCheckThenPublish(p.filename, p.content, p.category);  // 发布/校对统一走"校对→发布"：
     // 不能因口令验证的时机不同而跳过 AI 校对（2026-11-14 本地实测：首次输口令
     // 发布会绕过校对直接 doPublish，校对环节整个消失）
   }
@@ -605,7 +690,7 @@ async function deleteNote() {
 
 async function doDeleteNote(file) {
   try {
-    const d = await edApi('/api/admin/notes/delete/' + encodeURIComponent(file), { method: 'POST' });
+    const d = await edApi('/api/admin/notes/delete/' + encPath(file), { method: 'POST' });
     // 清掉这篇笔记关联的草稿（内容已随文件一起没了，留着会指向不存在的文件）
     edSaveAll(edDrafts().filter(x => x.filename !== file));
     toast(d.committed ? '已删除，git 提交 ' + d.commit : '已删除', 'ok', 6000);
@@ -624,16 +709,19 @@ async function doDeleteNote(file) {
   $('delEntry').textContent = '删除这篇';
 }
 
-async function doPublish(filename, content) {
+async function doPublish(filename, content, category) {
   content = panguSource(content);   // 发布前自动补中英空格（盘古之白）
+  category = category || '';
   const btn = $('edPublishBtn');
   btn.disabled = true; btn.textContent = '发布中…';
   try {
     const d = await edApi('/api/admin/notes/publish', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename, content }),
+      // old_file：编辑已有笔记时传原相对路径——与目标目录不同 = 服务端原子移动
+      body: JSON.stringify({ filename, content, category, old_file: edEditFile || '' }),
     });
     let msg = d.update ? '笔记已更新' : '笔记已发布';
+    if (category) msg += `到「${category}」`;
     if (d.committed) msg += `，git 提交 ${d.commit}`;
     else msg += '（内容与上次一致，无新提交）';
     if (d.pushed) msg += '，已推送 GitHub';
@@ -647,11 +735,12 @@ async function doPublish(filename, content) {
     edSaveAll(edDrafts().filter(x => x.id !== edDraftId && x.title !== pubTitle));
     edDraftId = edNewDraftId();
     edLastSaved = content;
+    edEditFile = d.filename;   // 移动目录后锁定新路径，再发布不会在旧位置留副本
     loadList();
-    location.hash = '#/' + filename;
+    location.hash = '#/' + encPath(d.filename);
   } catch (e) {
     if (e.status === 401) {
-      edPending = { type: 'publish', filename, content };
+      edPending = { type: 'publish', filename, content, category };
       $('edAuthBox').style.display = '';
       $('edToken').focus();
       toast('口令不对，再试一次', 'err');
@@ -703,7 +792,7 @@ function panguSource(md) {
 /* ============ AI 校对：发布前过一遍错别字/拼写/大小写 ============ */
 let edProofPending = null;
 
-async function aiCheckThenPublish(filename, content) {
+async function aiCheckThenPublish(filename, content, category) {
   const btn = $('edPublishBtn');
   btn.disabled = true; btn.textContent = 'AI 检查中…';
   try {
@@ -712,13 +801,13 @@ async function aiCheckThenPublish(filename, content) {
       body: JSON.stringify({ content }),
     });
     btn.disabled = false; btn.textContent = '提交发布';
-    if (d.issues && d.issues.length) { showProof(d, filename, content); return; }
+    if (d.issues && d.issues.length) { showProof(d, filename, content, category); return; }
     toast(d.summary || 'AI 检查通过：未发现错别字或拼写问题', 'ok', 5000);
-    await doPublish(filename, content);
+    await doPublish(filename, content, category);
   } catch (e) {
     btn.disabled = false; btn.textContent = '提交发布';
     if (e.status === 401) {
-      edPending = { type: 'proofread', filename, content };
+      edPending = { type: 'proofread', filename, content, category };
       $('edAuthBox').style.display = '';
       $('edToken').focus();
       toast('AI 检查也需要笔记口令——输一次浏览器就记住', 'err');
@@ -729,11 +818,11 @@ async function aiCheckThenPublish(filename, content) {
   }
 }
 
-function showProof(d, filename, content) {
+function showProof(d, filename, content, category) {
   // 过滤模型自认"无需修改"的条目（original 与 suggest 相同），列出来纯噪音
   const real = (d.issues || []).filter(i => (i.suggest || '').trim() && (i.original || '').trim() !== i.suggest.trim());
   const nofix = (d.issues || []).length - real.length;
-  edProofPending = { filename, content, issues: real, applied: 0 };
+  edProofPending = { filename, content, category, issues: real, applied: 0 };
   // 发布按钮文案跟随改正行为：没改过=无视建议直接发；改过=发布的就是修正后的内容
   $('proofPublishBtn').textContent = real.length ? '忽略建议，直接发布' : '直接发布';
   $('proofSummary').textContent = `AI 共发现 ${d.issues.length} 处疑似问题` +
@@ -778,7 +867,7 @@ function closeProof(edit) {
   const p = edProofPending; edProofPending = null;
   $('proofModal').style.display = 'none';
   // 必须实时取编辑器内容：一键修正后 p.content（校对快照）已过期
-  if (!edit && p) doPublish(p.filename, edGetValue());
+  if (!edit && p) doPublish(p.filename, edGetValue(), p.category);
 }
 
 /* ==================== 启动 ==================== */
