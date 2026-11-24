@@ -1,67 +1,80 @@
 [
   {
-    "file": "2026-11-23-note-220330.md",
+    "file": "AI技术/2026-11-23-note-220330.md",
     "title": "RAG 的索引和检索",
-    "date": "2026-11-23"
+    "date": "2026-11-23",
+    "category": "AI技术"
   },
   {
-    "file": "2026-11-22-note-141834.md",
+    "file": "FDE实践/2026-11-22-note-141834.md",
     "title": "FDE 的优秀案例",
-    "date": "2026-11-22"
+    "date": "2026-11-22",
+    "category": "FDE实践"
   },
   {
-    "file": "2026-11-20-note-215834.md",
+    "file": "FDE实践/2026-11-20-note-215834.md",
     "title": "FDE 的定价与获利",
-    "date": "2026-11-20"
+    "date": "2026-11-20",
+    "category": "FDE实践"
   },
   {
-    "file": "2026-11-19-note-153101.md",
+    "file": "AI技术/2026-11-19-note-153101.md",
     "title": "多 Agent 也不是滴水不漏",
-    "date": "2026-11-19"
+    "date": "2026-11-19",
+    "category": "AI技术"
   },
   {
-    "file": "2026-11-17-note-212341.md",
+    "file": "商业思考/2026-11-17-note-212341.md",
     "title": "ToB 公司的护城河",
-    "date": "2026-11-17"
+    "date": "2026-11-17",
+    "category": "商业思考"
   },
   {
-    "file": "2026-11-16-note-233849.md",
+    "file": "商业思考/2026-11-16-note-233849.md",
     "title": "如何把单客户成果沉淀进产品",
-    "date": "2026-11-16"
+    "date": "2026-11-16",
+    "category": "商业思考"
   },
   {
-    "file": "2026-11-14-note-221452.md",
+    "file": "商业思考/2026-11-14-note-221452.md",
     "title": "AI 项目怎么验收和上线",
-    "date": "2026-11-14"
+    "date": "2026-11-14",
+    "category": "商业思考"
   },
   {
-    "file": "2026-11-14-note-113012.md",
+    "file": "FDE实践/2026-11-14-note-113012.md",
     "title": "FDE 施工现场篇",
-    "date": "2026-11-14"
+    "date": "2026-11-14",
+    "category": "FDE实践"
   },
   {
-    "file": "2026-11-13-note-150750.md",
+    "file": "FDE实践/2026-11-13-note-150750.md",
     "title": "FDE 关键人、关键事",
-    "date": "2026-11-13"
+    "date": "2026-11-13",
+    "category": "FDE实践"
   },
   {
-    "file": "2026-11-10-note-222655.md",
+    "file": "FDE实践/2026-11-10-note-222655.md",
     "title": "FDE 该怎么发掘高价值的问题",
-    "date": "2026-11-10"
+    "date": "2026-11-10",
+    "category": "FDE实践"
   },
   {
-    "file": "2026-11-10-note-211737.md",
+    "file": "FDE实践/2026-11-10-note-211737.md",
     "title": "FDE 进场后，第一周要干什么",
-    "date": "2026-11-10"
+    "date": "2026-11-10",
+    "category": "FDE实践"
   },
   {
-    "file": "2026-11-09-note-224539.md",
+    "file": "FDE实践/2026-11-09-note-224539.md",
     "title": "对 FDE 的认识",
-    "date": "2026-11-09"
+    "date": "2026-11-09",
+    "category": "FDE实践"
   },
   {
-    "file": "2026-11-08-note-155702.md",
+    "file": "AI技术/2026-11-08-note-155702.md",
     "title": "langChain 和 langGraph 的差别",
-    "date": "2026-11-08"
+    "date": "2026-11-08",
+    "category": "AI技术"
   }
 ]
