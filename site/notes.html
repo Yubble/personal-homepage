@@ -787,12 +787,69 @@ function panguSource(md) {
   return out.replace(/\x00(\d+)\x00/g, (m, i) => stash[+i]);
 }
 
+/* ============ 发布前外提内嵌图片（2026-11-25） ============
+   Vditor 所见即所得模式下 Ctrl+V 粘截图，会把 data:image/...;base64 整段
+   写进 getValue()——实测一张 250KB 的图让正文涨到 342492 字符，直接撞服务端
+   20 万字符上限；更糟的是 AI 校对会把这段 base64 整篇发给 LLM。工具栏 upload
+   走服务端短链接、不覆盖粘贴路径，所以发布前必须兜住这一手：data URL 还原成
+   Blob → 走现成的 /api/admin/notes/image → 正文替换成 /notes/img/xxx.png。
+   放在 aiCheckThenPublish 入口拦一次即可覆盖所有发布路径，存量草稿也自动获救。 */
+async function extractInlineImages(content) {
+  const re = /data:image\/(png|jpeg|jpg|gif|webp);base64,([A-Za-z0-9+/]+={0,2})/g;
+  const hits = [...content.matchAll(re)];
+  if (!hits.length) return content;
+  toast(`检测到 ${hits.length} 张内嵌粘贴图片，正在转为站点附件…`, 'info', 6000);
+  let out = content, done = 0;
+  for (const hit of hits) {
+    const dataUrl = hit[0];
+    const mime = hit[1] === 'jpg' ? 'jpeg' : hit[1];
+    const ext = hit[1] === 'jpeg' ? 'jpg' : hit[1];
+    let blob;
+    try {
+      const bin = atob(hit[2]);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      blob = new Blob([arr], { type: `image/${mime}` });
+    } catch (e) {
+      throw new Error(`第 ${done + 1} 张内嵌图片数据损坏，请删掉后改用工具栏上传`);
+    }
+    const fd = new FormData();
+    fd.append('file', blob, `paste-${Date.now()}-${done + 1}.${ext}`);
+    const d = await edApi('/api/admin/notes/image', { method: 'POST', body: fd });
+    const map = d && d.data && d.data.succMap;
+    const url = map && Object.values(map)[0];
+    if (!url) throw new Error(`第 ${done + 1} 张内嵌图片上传失败：${d.msg || '响应异常'}`);
+    out = out.split(dataUrl).join('/' + String(url).replace(/^\/+/, ''));
+    done++;
+  }
+  toast(`已转存 ${done} 张内嵌图片`, 'ok', 4000);
+  return out;
+}
 
 
 /* ============ AI 校对：发布前过一遍错别字/拼写/大小写 ============ */
 let edProofPending = null;
 
 async function aiCheckThenPublish(filename, content, category) {
+  // 外提内嵌图片必须在 AI 校对之前：否则 base64 会整段发给 LLM。成功后同步回
+  // 编辑器，让校对浮层/口令重试/一键修正（都从 edGetValue 取）拿到干净内容
+  try {
+    const cleaned = await extractInlineImages(content);
+    if (cleaned !== content) edSetValue(cleaned);
+    content = cleaned;
+  } catch (e) {
+    $('edPublishBtn').disabled = false;
+    $('edPublishBtn').textContent = '提交发布';
+    if (e.status === 401) {
+      edPending = { type: 'publish', filename, content, category };
+      $('edAuthBox').style.display = '';
+      $('edToken').focus();
+      toast('转存内嵌图片需要笔记口令——输一次浏览器就记住，再点一次发布', 'err');
+    } else {
+      toast('内嵌图片处理失败：' + e.message + '，请删掉该图片改用工具栏上传后重试', 'err', 8000);
+    }
+    return;
+  }
   const btn = $('edPublishBtn');
   btn.disabled = true; btn.textContent = 'AI 检查中…';
   try {
