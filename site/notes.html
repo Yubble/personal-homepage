@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-store">
 <title>Yubble · 学习笔记</title>
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=16">
 <!-- Markdown 渲染（详情/预览） + XSS 消毒 -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script>window.marked || document.write('<script src="https://unpkg.com/marked@12.0.2/marked.min.js"><\/script>')</script>
@@ -48,7 +48,9 @@
     <section id="noteList">
       <div class="note-loading">正在从仓库拉取笔记清单…</div>
     </section>
-    <nav id="pager" class="pager" style="display:none" aria-label="笔记分页"></nav>
+    <!-- 用 div 而非 nav：style.css 的全局 nav{白底+sticky+底边线} 是站点顶栏样式，
+         分页容器若用 nav 会整条继承，按钮再透明也去不掉那条白色横条（2026-11-28 实测） -->
+    <div id="pager" class="pager" style="display:none" role="navigation" aria-label="笔记分页"></div>
   </div>
 
   <!-- 详情视图（#/文件名.md 时显示） -->
@@ -300,7 +302,8 @@ function renderList() {
     (m.category || '') === curCat);
   const info = pageInfo(metas.length, curPage);
   curPage = info.page;
-  $('noteCount').textContent = metas.length ? `共 ${metas.length} 篇` : '';
+  $('noteCount').innerHTML = metas.length
+    ? `共 <b>${metas.length}</b> 篇${info.pages > 1 ? ` · 第 <b>${info.page}</b>/${info.pages} 页` : ''}` : '';
   if (!metas.length) {
     box.innerHTML = '<div class="note-loading">这个目录下还没有笔记</div>';
     renderPager(0);
