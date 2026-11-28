@@ -322,22 +322,24 @@ footer a:hover { color: #ea580c; }
 .moment-grid figure:hover img { transform: scale(1.04); }
 @media (max-width: 640px) { .moment-grid { grid-template-columns: 1fr; } .moment-grid img { height: 180px; } }
 
-/* 学习笔记：列表计数与分页（2026-11-28） */
+/* 学习笔记：列表计数与分页（2026-11-28；28 日晚重设计：去白底融入米色页面，
+   数字按钮透明底 hover 浮现淡橙，当前页橙块；计数行带"第 x/y 页"提示） */
 .list-meta {
   display: flex; justify-content: flex-end; margin: 2px 0 -4px;
   color: #a8a29e; font-size: 12.5px; letter-spacing: .5px;
 }
+.list-meta b { color: #ea580c; font-weight: 700; }
 .pager {
   display: flex; justify-content: center; align-items: center;
-  gap: 8px; flex-wrap: wrap; margin: 26px 0 10px;
+  gap: 4px; flex-wrap: wrap; margin: 30px 0 12px;
 }
 .page-btn {
-  padding: 6px 14px; border: 1px solid #e0d6c4; border-radius: 16px;
-  background: #fff; color: #78716c; font-size: 12.5px; cursor: pointer;
-  transition: all .15s; letter-spacing: .5px;
+  min-width: 36px; padding: 7px 13px; border: none; border-radius: 18px;
+  background: transparent; color: #8a8178; font-size: 13px; cursor: pointer;
+  transition: all .15s; letter-spacing: .5px; text-align: center;
 }
-.page-btn:hover:not(:disabled) { border-color: #ea580c; color: #ea580c; }
-.page-btn.on { background: #ea580c; border-color: #ea580c; color: #fff; cursor: default; }
-.page-btn:disabled { opacity: .4; cursor: not-allowed; }
-.page-ellipsis { color: #a8a29e; padding: 0 2px; }
-@media (max-width: 640px) { .page-btn { padding: 6px 11px; } }
+.page-btn:hover:not(:disabled) { background: #ffedd9; color: #ea580c; }
+.page-btn.on { background: #ea580c; color: #fff; font-weight: 700; }
+.page-btn:disabled { opacity: .35; cursor: not-allowed; }
+.page-ellipsis { color: #c9beb0; padding: 0 4px; }
+@media (max-width: 640px) { .page-btn { min-width: 32px; padding: 7px 10px; } }
