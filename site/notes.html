@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-store">
 <title>Yubble · 学习笔记</title>
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 <!-- Markdown 渲染（详情/预览） + XSS 消毒 -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script>window.marked || document.write('<script src="https://unpkg.com/marked@12.0.2/marked.min.js"><\/script>')</script>
@@ -44,9 +44,11 @@
       <a class="write-entry" href="#/new">＋ 写一篇</a>
     </div>
     <div id="catBar" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 2px"></div>
+    <div class="list-meta"><span id="noteCount"></span></div>
     <section id="noteList">
       <div class="note-loading">正在从仓库拉取笔记清单…</div>
     </section>
+    <nav id="pager" class="pager" style="display:none" aria-label="笔记分页"></nav>
   </div>
 
   <!-- 详情视图（#/文件名.md 时显示） -->
@@ -201,11 +203,13 @@ async function loadList() {
   if (!items) {
     box.innerHTML = '<div class="note-loading">笔记清单拉取失败——既没有 index.json 也没有目录浏览权限</div>';
     renderChips();
+    resetListMeta();
     return;
   }
   if (!items.length) {
     box.innerHTML = '<div class="note-loading">笔记目录还是空的——点右上角「写一篇」开张</div>';
     renderChips();
+    resetListMeta();
     return;
   }
   allMetas = await Promise.all(items.map(async it => {
@@ -228,6 +232,52 @@ async function loadList() {
   }
 }
 
+/* 分页（2026-11-28）：清单一次加载、纯前端切片，不引入后端接口。
+   与筛选同为内存态：分类切换重置到第 1 页，刷新回第 1 页。计数是
+   "当前筛选下的篇数"，页码只在超过 1 页时出现。 */
+const PAGE_SIZE = 6;
+let curPage = 1;
+
+function pageInfo(total, page) {
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const p = Math.min(Math.max(1, page), pages);   // 越界夹取：删笔记后页码不悬空
+  return { pages, page: p, start: (p - 1) * PAGE_SIZE, end: p * PAGE_SIZE };
+}
+function pageNumbers(pages) {
+  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+  const win = [curPage - 1, curPage, curPage + 1].filter(n => n >= 2 && n <= pages - 1);
+  const out = [];
+  let prev = 0;
+  for (const n of [1, ...win, pages]) {
+    if (n - prev > 1) out.push('…');
+    out.push(n); prev = n;
+  }
+  return out;
+}
+function renderPager(pages) {
+  const nav = $('pager');
+  if (pages <= 1) { nav.innerHTML = ''; nav.style.display = 'none'; return; }
+  nav.style.display = '';
+  const nums = pageNumbers(pages).map(n => n === '…'
+    ? '<span class="page-ellipsis">…</span>'
+    : `<button class="page-btn${n === curPage ? ' on' : ''}" onclick="goPage(${n})">${n}</button>`).join('');
+  nav.innerHTML =
+    `<button class="page-btn" onclick="goPage(${curPage - 1})"${curPage === 1 ? ' disabled' : ''}>‹ 上一页</button>` +
+    nums +
+    `<button class="page-btn" onclick="goPage(${curPage + 1})"${curPage === pages ? ' disabled' : ''}>下一页 ›</button>`;
+}
+function goPage(n) {
+  curPage = n;   // pageInfo 会在 renderList 里夹取到合法范围
+  renderList();
+  const bar = $('catBar');
+  if (bar) window.scrollTo({ top: bar.getBoundingClientRect().top + window.scrollY - 12, behavior: 'smooth' });
+}
+function resetListMeta() {
+  const c = $('noteCount'), p = $('pager');
+  if (c) c.textContent = '';
+  if (p) { p.innerHTML = ''; p.style.display = 'none'; }
+}
+
 function renderChips() {
   const bar = $('catBar');
   if (!allMetas.length) { bar.innerHTML = ''; return; }
@@ -240,7 +290,7 @@ function renderChips() {
     (hasUncat ? chip('__NONE__', '未分类') : '');
 }
 
-function setCat(v) { curCat = v; renderChips(); renderList(); }
+function setCat(v) { curCat = v; curPage = 1; renderChips(); renderList(); }
 
 function renderList() {
   const box = $('noteList');
@@ -248,16 +298,21 @@ function renderList() {
     curCat === '__ALL__' ||
     (curCat === '__NONE__' && !(m.category || '')) ||
     (m.category || '') === curCat);
+  const info = pageInfo(metas.length, curPage);
+  curPage = info.page;
+  $('noteCount').textContent = metas.length ? `共 ${metas.length} 篇` : '';
   if (!metas.length) {
     box.innerHTML = '<div class="note-loading">这个目录下还没有笔记</div>';
+    renderPager(0);
     return;
   }
-  box.innerHTML = metas.map(m => `
+  box.innerHTML = metas.slice(info.start, info.end).map(m => `
     <a class="note" href="#/${encPath(m.file)}">
       <div class="date">${esc(m.date)}${m.category ? `<span class="cat-badge">${esc(m.category)}</span>` : ''}</div>
       <h3>${esc(m.title)}</h3>
       <p>${esc(m.excerpt)}${m.excerpt.length >= 92 ? '…' : ''}</p>
     </a>`).join('');
+  renderPager(info.pages);
 }
 
 /* 详情：拉 md → marked 渲染 → 消毒 → 修相对路径 */
